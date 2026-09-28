@@ -42,6 +42,8 @@ import { createHash } from 'node:crypto'
 import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { normalizeConfig } from './config.mjs'
+import { readLedger, runtimePathsIndex, reclassifyWithLedger, defaultLedgerPath } from './ledger.mjs'
 
 const HOME = homedir()
 /** 默认配置文件：本项目根下的 sync.config.json（src/ 的上一级） */
@@ -407,11 +409,20 @@ function main(argv = process.argv.slice(2)) {
 
   const configPath = args.configPath ?? DEFAULT_CONFIG_PATH
   let targets
+  let ledgerPaths = new Set()
+  let ledgerWarn = null
   try {
-    targets = buildTargets(loadConfig(configPath), { env: process.env })
+    const cfg = normalizeConfig(loadConfig(configPath))
+    targets = cfg.targets.length > 0 ? buildTargets({ targets: cfg.targets }, { env: process.env }) : []
   } catch (e) {
     console.error(`配置载入失败：${e.message}`)
     return 2
+  }
+  try {
+    ledgerPaths = runtimePathsIndex(readLedger(defaultLedgerPath()))
+  } catch (e) {
+    // 账本读不了 → aas 条目按普通分类处理（不拦截），但不能崩
+    ledgerWarn = String(e.message).split('\n')[0]
   }
 
   if (args.command === 'list') {
@@ -429,6 +440,7 @@ function main(argv = process.argv.slice(2)) {
 
   console.log(`\n${args.apply ? '== 执行同步（--apply）==' : '== 体检（只读，不改动任何东西）=='}`)
   console.log(`配置：${resolve(configPath)}\n`)
+  if (ledgerWarn) console.log(`⚠ 账本不可读，aas 条目按普通分类处理：${ledgerWarn}\n`)
 
   let hasIssue = false
   let failed = false
@@ -437,6 +449,7 @@ function main(argv = process.argv.slice(2)) {
     let r
     try {
       r = inspect(t)
+      reclassifyWithLedger(r, t, ledgerPaths) // 账本优先：aas 条目从六类中移出，防误删（设计稿 §6）
     } catch (e) {
       console.log(`── [${t.label}] 体检失败：${e.message}\n`)
       failed = true
@@ -449,12 +462,14 @@ function main(argv = process.argv.slice(2)) {
     console.log(
       `   已就位 ${r.ok.length} ｜ 需建链接 ${r.needLink.length} ｜ 需替换 ${r.wrong.length} ｜ 待迁移旧名 ${r.legacy.length} ｜ 自家残留 ${r.staleSelf.length} ｜ 孤儿(不动) ${r.orphans.length}`,
     )
+    if (r.aasInstall?.length) console.log(`   aas 安装 ${r.aasInstall.length}`)
     for (const x of r.ok) console.log(`   ✓ ${x.dstName}`)
     for (const x of r.needLink) console.log(`   ＋ ${x.dstName}   (${x.why})`)
     for (const x of r.wrong) console.log(`   ⚠ ${x.dstName}   (${x.why})`)
     for (const x of r.legacy) console.log(`   ↻ ${x.name}  →  将由 ${x.dstName} 替代`)
     for (const x of r.staleSelf) console.log(`   ⌫ 自家残留（源里已无此文件，加 --rm-old 清理）：${x.name}`)
     for (const x of r.orphans) console.log(`   ？ 孤儿（不属于本脚本管理，不动）：${x.name}${x.isLink ? ' [链接]' : ''}`)
+    for (const x of r.aasInstall ?? []) console.log(`   a ${x.name}  （aas 安装，按账本豁免${x.via ? `；原分类：${x.via}` : ''}）`)
 
     if (r.needLink.length || r.wrong.length || r.legacy.length || r.staleSelf.length) hasIssue = true
 

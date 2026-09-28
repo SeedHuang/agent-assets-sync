@@ -189,10 +189,10 @@
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | 1 骨架 ✅ 已落地（2026-09-28） | `package.json`（`bin: aas` + engines + private）+ `npm link` + commander 子命令化薄壳（doctor/sync/list 转发 main()）+ @inquirer spike | 现有 27 测试保绿【自动 ✅】；`aas` / `aas sync` / `aas list` / 退出码 0/2 可用【自动 ✅】；旧路径 `node src/sync.mjs` 仍可用【自动 ✅】 |
-| 2 底座 | 编辑器检测 + `~/.aas/` 布局 + 账本读写（原子写/备份/BOM 容错/schema 校验/status 态）+ 源登记 + **配置 schemaVersion（兼容旧 targets）** | 账本读写与损坏恢复有单测【自动】；配置新旧两格式都能载入【自动】；`aas editors` 输出正确【人工】 |
-| 3 add | clone（`--depth 1`，temp→原子改名）→ 列规则 → 选择（TTY）→ 装默认缓存+链接 → 记账（installing→installed）→ 撞名检查（账本/链接形态/大小写） | 真实装一条 GitHub 规则进 Trae CN，Trae 里能用【人工】；账本可复算、中断重跑收敛、非 TTY 行为（缺名报错/撞名跳过）【自动】 |
-| 4 update/remove | 按账本刷新与摘除；三态漂移修复；isTTY 守卫 | 装第二条同名报重复【自动】；update 换 commit 后内容变【自动】；remove 非 TTY 无 `--yes` 报错、摘干净且账销净【自动】 |
-| 5 收口 | 体检整合（账本优先拦截 + 三态漂移）+ `import` + 落地扫描 | 体检不再误报/误删 aas 条目（构造 legacy 撞车用例证明）【自动】；architecture/README 同步更新【人工】 |
+| 2 底座 ✅ 已落地（2026-09-28） | 编辑器检测 + `~/.aas/` 布局 + 账本读写（原子写/备份/BOM 容错/schema 校验/status 态）+ 源登记 + **配置 schemaVersion（兼容旧 targets）**（sync.config.json 已迁移新格式） | 账本读写与损坏恢复有单测【自动 ✅】；配置新旧两格式都能载入【自动 ✅】；`aas editors` 输出正确【人工 ✅】 |
+| 3 add ✅ 已落地（2026-09-28） | clone（`--depth 1`，temp→原子改名）→ 列规则 → 选择（TTY 多选标注已装）→ 装默认缓存+链接 → 记账（installing→installed）→ 撞名检查（账本/链接形态/大小写） | 真实装卸闭环（临时 git 仓库 → 真实 trae-cn 装 → 体检显示"aas 安装 1"→ remove 清理 → 恢复全部一致）【自动 ✅】；账本可复算、非 TTY 行为（缺名报错/撞名跳过）【自动 ✅】；**GitHub 远端真装 + Trae 界面里能用**【人工，待你试】 |
+| 4 update/remove ✅ 已落地（2026-09-28） | remove：按账本摘除+销账+isTTY 守卫+`--purge`；update：按账本刷新（拉新版→比对 commit→换缓存→重建链接→刷账本）+ **三态漂移修复实测**（副本化/断链均修复） | remove 非 TTY 无 `--yes` 报错、摘干净且账销净【自动 ✅】；update 换 commit 后内容变【自动 ✅（V1→V2 实测）】；无变化→"已是最新"【自动 ✅】；漂移修复【自动 ✅】；错误路径（缺名/未知名）退出码 2【自动 ✅】 |
+| 5 收口 ✅ 已落地（2026-09-28） | 体检整合（账本优先拦截 ✅）+ **legacy 撞车用例实测**（`--copy` 装入与本地源同内容的规则 → `sync --rm-old` 下存活，报告显示"原分类：旧名残留"）+ `aas import`（收编手建条目：原名反推/同名拒绝/链接形态与账本管理中点名拒绝）+ 落地扫描 ✅ | 体检不误报/误删【自动 ✅（legacy 撞车实测存活）】；import 各分支单测【自动 ✅】；architecture/README 同步更新【自动 ✅（见 §11 清单，全部完成）】 |
 
 **顺序铁律**（沿袭上次搬迁）：每阶段先测试后真实操作；**动运行时前先体检留底**。
 
@@ -202,13 +202,13 @@
 
 > **已定（2026-09-28）**：① 安装形态**默认 link（缓存+链接）**，`--copy` 作例外阀（用户拍板）；② 命令与目录拼写统一 **`aas` / `~/.aas/`**；③ 其他编辑器适配器**用到再接**，v1 只带 trae-cn。
 
-## 11. 落地时必须同步改的文档（预埋"落地后扫"清单）
+## 11. 落地时必须同步改的文档（✅ 已全部完成，2026-09-28 落地扫）
 
-| 文档 | 要改什么 |
-|---|---|
-| `retro-skills\docs\architecture.md` | §8.1 前置条件第 4 条（零依赖 → 列出实际依赖）；§11 R30/R31（本次收掉）；§4 公理补 CLI 化修订 |
-| 本仓库 `README.md` / `docs\design.md` | 用法换 `aas`；补两种形态说明 |
-| `my-rules\README.md` | "安装与同步"一节补 `aas` 路径 |
+| 文档 | 要改什么 | 状态 |
+|---|---|---|
+| `retro-skills\docs\architecture.md` | §8.1 前置条件第 4 条（零依赖 → 列出实际依赖）；§11 R30/R31（R30 已结、R31 仍候选）；§4 公理补 CLI 化修订；§8.1 用法换 `aas` | ✅ |
+| 本仓库 `README.md` / `docs\design.md` | 用法换 `aas`；补两种形态说明；design.md 文件地图更新 + 指向 cli-design.md | ✅ |
+| `my-rules\README.md` | "安装与同步"一节补 `aas` 路径与安装步骤 | ✅ |
 
 ## 12. 评审 Backlog（multi-lens-review P2 处置沉淀 + 轮次记录）
 
