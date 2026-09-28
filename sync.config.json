@@ -1,0 +1,20 @@
+{
+  "targets": [
+    {
+      "label": "全局规则",
+      "srcDir": "D:/Seed/my-rules/rules",
+      "dstDir": "~/.trae-cn/user_rules",
+      "dstName": "rule-{name}",
+      "level": "file",
+      "env": { "srcDir": "MY_RULES_SRC", "dstDir": "TRAE_RULES_DST" }
+    },
+    {
+      "label": "技能",
+      "srcDir": "D:/Seed/retro-skills/skills",
+      "dstDir": "~/.trae-cn/skills",
+      "dstName": "{name}",
+      "level": "dir",
+      "env": { "srcDir": "RETRO_SKILLS_DIR", "dstDir": "TRAE_SKILLS_DST" }
+    }
+  ]
+}
