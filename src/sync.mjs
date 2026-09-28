@@ -8,7 +8,7 @@
  * 体系公理（见 retro-skills/docs/architecture.md §4）：
  *   运行时目录只读；唯一编辑点是源仓库；更新 = 改源 → 跑本脚本。
  *
- * 用法（在本项目根下跑）：
+ * 用法（在本项目根下跑；日常推荐用全局命令 `aas`，见 docs/cli-design.md）：
  *   node src/sync.mjs                    只体检（默认，绝不改动任何东西）
  *   node src/sync.mjs --apply            同步：只建"缺失的链接"，不删任何东西
  *   node src/sync.mjs --apply --replace  允许把"真实副本 / 指错的链接"换成链接（会删东西）

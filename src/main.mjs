@@ -2,25 +2,26 @@
 /**
  * aas —— agent-assets-sync 的命令行入口（设计见 docs/cli-design.md）。
  *
- * 阶段 1：doctor/sync/list 是 commander 薄壳，转发 src/sync.mjs 的 main()（行为与 node src/sync.mjs 一致）。
- * 阶段 2+3：editors/add/remove 走独立模块（config/ledger/editors/add/remove）。
+ * 结构：doctor/sync/list 是 commander 薄壳，转发 src/sync.mjs 的 main()（行为与 node src/sync.mjs 一致）；
+ *       editors/add/remove/update/import 走独立模块（config / ledger / editors / add / remove / update / import）。
  *
  * 子命令：
  *   aas               = aas doctor    只体检（默认命令，绝不改动任何东西）
  *   aas doctor        同上
  *   aas sync          同步：把源链接进运行时（默认只建缺失的链接，删东西要显式 flag）
  *     --replace / --rm-old            允许删东西的动作（见 aas sync --help）
- *   aas list          列出链接形态各源有哪些条目（只读；账本视图见阶段 4）
+ *   aas list          列出配置里各源有哪些条目（只读）
  *   aas editors       列出检测到的编辑器与各自目录、前置条件（只读）
  *   aas add <源> [名...]   从远端/本地源安装资产（多选标注已装；记录原名→运行时名映射）
  *     --editor <名>  显式指定编辑器（非 TTY 必须给）
  *     --copy         复制而不是链接（默认缓存+链接）
  *     --as <id>      单个资产换账本 id（撞名时用）
  *     --yes          非 TTY 下允许覆盖已存在条目
+ *   aas update [名]   按账本刷新已装资产（内容更新 + 三态漂移修复）
+ *     --all / --editor <名>
  *   aas remove <名>   按账本摘除运行时条目并销账
- *     --editor <名>  只摘某个编辑器的
- *     --purge        连缓存一起清（没有别的条目引用时）
- *     --yes          非 TTY 必须；TTY 可省（会交互确认）
+ *     --editor <名> / --purge / --yes
+ *   aas import <名>   把编辑器里手建的条目收编进源仓库（接管需再跑 aas sync --replace）
  *   --config <路径>   用别的配置文件（默认 项目根的 sync.config.json）
  */
 import { Command } from 'commander'
