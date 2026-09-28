@@ -1,0 +1,29 @@
+{
+  "name": "agent-assets-sync",
+  "version": "0.1.0",
+  "description": "把源仓库的规则/技能同步与安装进编辑器的运行时目录（aas CLI）",
+  "type": "module",
+  "bin": {
+    "aas": "src/main.mjs"
+  },
+  "files": [
+    "src",
+    "sync.config.json",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "doctor": "node src/main.mjs doctor",
+    "localg": "npm install -g .",
+    "localg:rm": "npm uninstall -g agent-assets-sync"
+  },
+  "private": true,
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@inquirer/prompts": "^7.10.1",
+    "commander": "^15.0.0"
+  }
+}
