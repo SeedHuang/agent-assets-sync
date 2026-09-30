@@ -83,7 +83,7 @@ test('parseSource：短写带 .git / #ref', () => {
 })
 
 test('parseSource：本地路径与配置 sources 短名不受影响', () => {
-  const local = parseSource('D:/Seed/retro-skills', { sources: {} })
+  const local = parseSource(tmp(), { sources: {} })
   assert.equal(local.isLocal, true)
   const viaCfg = parseSource('rs', { sources: { rs: 'https://github.com/seedhuang/retro-skills.git' } })
   assert.equal(viaCfg.url, 'https://github.com/seedhuang/retro-skills')
