@@ -28,5 +28,15 @@
       "editor": "trae-cn",
       "env": { "srcDir": "RETRO_SKILLS_DIR", "dstDir": "TRAE_SKILLS_DST" }
     }
-  ]
+  ],
+  "skills": {
+    "multi-lens-review":     { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
+    "prd-to-specs":          { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
+    "retro-collect":         { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
+    "retro-analyze":         { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
+    "retro-institutionalize":{ "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
+    "evolving-skills":       { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
+    "using-retrospective":   { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
+    "managing-lessons-store":{ "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" }
+  }
 }
