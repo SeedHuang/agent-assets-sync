@@ -24,11 +24,19 @@ export function normalizeConfig(raw) {
   if (typeof editors !== 'object' || Array.isArray(editors)) throw new Error('配置的 editors 应为对象')
   if (typeof sources !== 'object' || Array.isArray(sources)) throw new Error('配置的 sources 应为对象')
 
+  const skills = raw.skills ?? {}
+  if (typeof skills !== 'object' || Array.isArray(skills)) throw new Error('配置的 skills 应为对象')
+  for (const [name, entry] of Object.entries(skills)) {
+    if (!entry || typeof entry.source !== 'string' || entry.source.trim() === '') {
+      throw new Error(`配置 skills 条目缺 source：${name}`)
+    }
+  }
+
   let targets
   if (Array.isArray(raw.linkTargets)) targets = raw.linkTargets
   else if (Array.isArray(raw.targets)) targets = raw.targets // 旧格式
   else throw new Error('配置里没有 targets/linkTargets（应为非空数组）')
   if (!Array.isArray(targets)) throw new Error('配置里没有 targets/linkTargets（应为非空数组）')
 
-  return { schemaVersion, editors, sources, targets }
+  return { schemaVersion, editors, sources, targets, skills }
 }

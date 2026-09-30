@@ -45,3 +45,26 @@ test('非对象 / 数组 → 报错', () => {
   assert.throws(() => normalizeConfig(null), /不是对象/)
   assert.throws(() => normalizeConfig([]), /不是对象/)
 })
+
+test('skills 目录：归一化返回', () => {
+  const raw = {
+    schemaVersion: 1, editors: {}, sources: {},
+    linkTargets: [],
+    skills: { 'multi-lens-review': { source: 'https://github.com/seedhuang/retro-skills.git', localPath: 'D:/Seed/retro-skills' } },
+  }
+  const c = normalizeConfig(raw)
+  assert.equal(c.skills['multi-lens-review'].source, 'https://github.com/seedhuang/retro-skills.git')
+})
+
+test('skills 条目缺 source → 报错（B4）', () => {
+  assert.throws(() => normalizeConfig({
+    schemaVersion: 1, editors: {}, sources: {}, linkTargets: [],
+    skills: { bad: { localPath: 'D:/x' } },
+  }), /skills 条目缺 source：bad/)
+})
+
+test('skills 非对象 → 报错', () => {
+  assert.throws(() => normalizeConfig({
+    schemaVersion: 1, editors: {}, sources: {}, linkTargets: [], skills: [],
+  }), /skills 应为对象/)
+})
