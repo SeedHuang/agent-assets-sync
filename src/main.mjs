@@ -110,6 +110,7 @@ program
   .option('--editor <名>', '显式指定编辑器（非交互环境必须给）')
   .option('--copy', '复制而不是链接（默认缓存+链接）')
   .option('--as <id>', '单个资产换账本 id（撞名时用）')
+  .option('--islocal', '本地调试：只从本地解析（目录 localPath → 缓存），找不到报「本地未找到」，绝不联网')
   .option('--yes', '非交互环境下允许覆盖已存在条目')
   .option('--config <路径>', '用别的配置文件')
   .action(async (source, names, opts) => {
@@ -120,6 +121,7 @@ program
         names,
         opts: {
           editor: opts.editor, yes: opts.yes, copy: opts.copy, as: opts.as,
+          isLocal: opts.isLocal,
           configPath: cfg, home: homedir(), isTTY,
           env: process.env,
         },

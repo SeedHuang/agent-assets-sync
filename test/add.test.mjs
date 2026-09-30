@@ -4,12 +4,13 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import {
   parseSource, cacheKeyForSource, cloneToCache, listAssets, runAdd,
 } from '../src/add.mjs'
 import { runRemove } from '../src/remove.mjs'
+import { normalizeConfig } from '../src/config.mjs'
 
 // ── 夹具 ─────────────────────────────────────────────
 function tmp(prefix = 'add-') { return mkdtempSync(join(tmpdir(), prefix)) }
@@ -267,4 +268,16 @@ test('remove：账本里没有 → 报错并列出可选', async () => {
     () => runRemove({ id: 'ghost', opts: OPTS(home, cfgPath, { yes: true }) }),
     /账本是空的|可选：/,
   )
+})
+
+test('resolveAddSource：默认先当源解析（URL），不是源才走目录/npx', async () => {
+  const { resolveAddSource } = await import('../src/add.mjs')
+  const cfg = normalizeConfig({ schemaVersion: 1, editors: {}, sources: {}, linkTargets: [], skills: { s: { source: 'https://github.com/x/y.git' } } })
+  const urlCtx = resolveAddSource('https://github.com/a/b.git', cfg, { home: homedir(), isLocal: false })
+  assert.equal(urlCtx.context.kind, 'source')
+  const npxCtx = resolveAddSource('unknown-name', cfg, { home: homedir(), isLocal: false })
+  assert.equal(npxCtx.context.kind, 'npx')
+  const localCtx = resolveAddSource('unknown-name', cfg, { home: homedir(), isLocal: true })
+  assert.equal(localCtx.ok, false)
+  assert.match(localCtx.reason, /本地未找到/)
 })

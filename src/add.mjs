@@ -19,6 +19,10 @@ import { loadConfig, expandHome, removeLinkOrCopy, lexists, DEFAULT_CONFIG_PATH 
 import { normalizeConfig } from './config.mjs'
 import { readLedger, writeLedger, findEntry, defaultLedgerPath } from './ledger.mjs'
 import { pickEditor, resolveRuntimeName, resolveEditorDir, editorLevel } from './editors.mjs'
+import { resolveSourceForName } from './catalog.mjs'
+import { resolveSkillDeps } from './deps.mjs'
+import { ensureCli } from './cli-version.mjs'
+import { refreshOne } from './update.mjs'
 
 // ─────────────────────────────────────────────
 // 源解析与缓存
@@ -116,6 +120,55 @@ function renameSafe(from, to) {
     rmSync(to, { recursive: true, force: true })
   } catch { /* 目标不存在 */ }
   renameSync(from, to)
+}
+
+/** 统一源解析（spec §5.1）：默认先当源解析，不是源 → 目录 → npx；--islocal 走目录/本地 */
+export function resolveAddSource(sourceSpec, config, { home, isLocal }) {
+  if (isLocal) return resolveSourceForName(sourceSpec, config, { home, isLocal: true })
+  try {
+    const src = parseSource(sourceSpec, config)
+    return { ok: true, context: { kind: 'source', source: src } }
+  } catch {
+    return resolveSourceForName(sourceSpec, config, { home, isLocal: false })
+  }
+}
+
+/** npx 回退（spec §5.1 步 3）：npx skills add <名> -g -y，非交互免挂起 */
+function runNpxAdd(name) {
+  try {
+    execFileSync('npx', ['skills', 'add', name, '-g', '-y'], { encoding: 'utf8', stdio: ['inherit', 'pipe', 'pipe'] })
+    return [`· 回退 npx skills add ${name} 完成（该技能由 npx 锁管理，未记入 aas 账本）`]
+  } catch (e) {
+    const stderr = String(e.stderr || e.message || '').trim().split(/\r?\n/).slice(-3).join(' | ')
+    throw new Error(`npx skills add ${name} 失败（退出码 ${e.status ?? '?'}）：${stderr}`)
+  }
+}
+
+/** 依赖技能 ensure（spec §5.2 / M1 / B1）：装或刷新单个依赖技能，返回其清单目录 */
+export async function ensureSkillDep({ name, sourceCtx, manifestRoot, editorName, editor, config, ledger, ledgerPath, home, opts }) {
+  let depRoot
+  if (sourceCtx === 'inherit') {
+    depRoot = manifestRoot // 与主技能同源：清单目录所在源根
+  } else {
+    const src = parseSource(sourceCtx, config)
+    const { cacheDir } = cloneToCache(src, { home })
+    depRoot = cacheDir
+  }
+  const existing = findEntry(ledger, name, editorName)
+  if (existing) {
+    await refreshOne(existing, config, { home })
+    writeLedger(ledgerPath, ledger)
+    return { ok: true, action: 'refreshed', manifestDir: join(depRoot, 'skilldependencies') }
+  }
+  const runtimePath = join(resolveEditorDir(editor, 'skill', { home }), name)
+  if (lexists(runtimePath)) {
+    return { ok: false, error: `已存在但非 aas 管理：用 aas import 收编或手动移除（${name}）` }
+  }
+  const abs = join(depRoot, 'skills', name)
+  const asset = { id: name, kind: 'skill', originalName: name, path: relative(depRoot, abs), abs, repo: null, ref: null, commit: null }
+  const action = await installOne({ asset, editorName, editor, config, ledger, ledgerPath, home, opts })
+  if (action !== 'installed') return { ok: false, error: `${name} 安装未完成（${action}）` }
+  return { ok: true, action: 'installed', manifestDir: join(depRoot, 'skilldependencies') }
 }
 
 // ─────────────────────────────────────────────
@@ -303,12 +356,27 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
   }
   const { name: editorName, editor } = picked
 
-  const src = parseSource(sourceSpec, config)
-  const { cacheDir, commit } = cloneToCache(src, { home })
-  lines.push(`源：${src.url}${src.ref ? `（ref: ${src.ref}）` : ''}`)
-  lines.push(`缓存：${cacheDir}${commit ? `（commit ${commit.slice(0, 12)}）` : ''}`)
+  // 统一源解析（spec §5.1）
+  const ctx = resolveAddSource(sourceSpec, config, { home, isLocal: opts.isLocal ?? false })
+  if (!ctx.ok) throw new Error(ctx.reason)
+  if (ctx.context.kind === 'npx') return runNpxAdd(ctx.context.name)
 
-  const assets = listAssets(cacheDir)
+  let rootDir, commit = null
+  let src = null
+  if (ctx.context.kind === 'path') {
+    rootDir = ctx.context.path // 显式本地路径 / --islocal 工作副本：live 直用，不 clone
+    lines.push(`源：${rootDir}（本地）`)
+  } else {
+    // R11：目录命中时 context.source 是字符串；resolveAddSource 的 parseSource 成功路径是 {url,ref,isLocal}
+    const rawSource = ctx.context.source
+    src = typeof rawSource === 'string' ? parseSource(rawSource, config) : rawSource
+    const { cacheDir, commit: c } = cloneToCache(src, { home })
+    rootDir = cacheDir; commit = c
+    lines.push(`源：${src.url}${src.ref ? `（ref: ${src.ref}）` : ''}`)
+    lines.push(`缓存：${cacheDir}${commit ? `（commit ${commit.slice(0, 12)}）` : ''}`)
+  }
+
+  const assets = listAssets(rootDir)
   const ledgerPath = defaultLedgerPath(home)
   const ledger = readLedger(ledgerPath)
 
@@ -316,9 +384,7 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
   if (names.length > 0) {
     selected = resolveNames(names, assets, opts)
   } else {
-    if (!isTTY) {
-      throw new Error(`非交互环境必须给出要装的资产名；缓存里可选：${assets.map((a) => a.id).join('、') || '（无）'}`)
-    }
+    if (!isTTY) throw new Error(`非交互环境必须给出要装的资产名；缓存里可选：${assets.map((a) => a.id).join('、') || '（无）'}`)
     const { checkbox } = await import('@inquirer/prompts')
     const installedSet = new Set(ledger.entries.filter((e) => e.editor === editorName).map((e) => `${e.id}`))
     const answers = await checkbox({
@@ -328,18 +394,15 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
         value: a,
       })),
     })
-    if (answers.length === 0) {
-      lines.push('未选择任何资产，无事可做。')
-      return lines
-    }
+    if (answers.length === 0) { lines.push('未选择任何资产，无事可做。'); return lines }
     selected = answers
   }
 
-  let installed = 0
-  let skipped = 0
+  let installed = 0, skipped = 0
+  const depSummary = { installed: [], refreshed: [], cliUpdated: [], cliInstalled: [], failures: [] }
   for (const asset of selected) {
     const action = await installOne({
-      asset: { ...asset, repo: src.url, ref: src.ref, commit },
+      asset: { ...asset, repo: ctx.context.kind === 'source' ? src.url : rootDir, ref: ctx.context.kind === 'source' ? src.ref : null, commit },
       editorName, editor, config, ledger, ledgerPath, home,
       opts: { ...opts, isTTY },
     })
@@ -348,11 +411,40 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
       const e = findEntry(ledger, asset.id, editorName)
       const verb = e.mode === 'copy' ? '装副本' : '装链接'
       lines.push(`· ${verb}  ${e.runtimeName}  →  ${e.runtimePath}  （来自 ${e.source.path}）`)
+      // 依赖解析（spec §5.2）：装完 skill 自动解析
+      if (asset.kind === 'skill') {
+        const manifestDir = join(rootDir, 'skilldependencies')
+        if (existsSync(manifestDir)) {
+          const ensureSkill = (name, sourceCtx) => ensureSkillDep({
+            name, sourceCtx, manifestRoot: rootDir, editorName, editor, config, ledger, ledgerPath, home, opts: { ...opts, isTTY },
+          })
+          const r = await resolveSkillDeps({
+            skill: asset.id, rootManifestDir: manifestDir, rootSourceCtx: 'inherit',
+            ensureSkill, ensureCli,
+          })
+          depSummary.installed.push(...r.installed)
+          depSummary.refreshed.push(...r.refreshed)
+          depSummary.cliUpdated.push(...r.cliUpdated)
+          depSummary.cliInstalled.push(...r.cliInstalled)
+          depSummary.failures.push(...r.failures)
+          if (ctx.context.kind === 'source' && commit) {
+            lines.push(`· 依赖清单来源 commit ${commit.slice(0, 12)}`)
+          }
+        }
+      }
     } else {
       skipped++
       lines.push(`· 跳过    ${asset.id}  （已存在；要覆盖加 --yes）`)
     }
   }
+
+  // 依赖汇总（R6：失败清单带详情，不中断）
+  for (const n of depSummary.installed) lines.push(`· 依赖安装  ${n}`)
+  for (const n of depSummary.refreshed) lines.push(`· 依赖刷新  ${n}`)
+  for (const r of depSummary.cliUpdated) lines.push(`· CLI 更新  ${r.name}  ${r.detail}`)
+  for (const r of depSummary.cliInstalled) lines.push(`· CLI 安装  ${r.name}  ${r.detail}`)
+  for (const f of depSummary.failures) lines.push(`· 依赖失败  [${f.type}] ${f.name}：${f.detail}`)
+
   lines.push(`→ 完成：新增 ${installed}、跳过 ${skipped}。账本：${ledgerPath}`)
   return lines
 }

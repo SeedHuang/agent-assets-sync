@@ -107,6 +107,21 @@ function replaceCacheDir(from, to) {
   if (hadOld) rmSync(old, { recursive: true, force: true })
 }
 
+/** 单条目刷新（依赖解析的"刷新"语义用；成功返回 { commit }） */
+export async function refreshOne(entry, config, { home = homedir() } = {}) {
+  const isLocal = typeof entry.source.repo === 'string' && !entry.source.repo.includes('://')
+  const { tmp, commit: newCommit } = fetchFresh({ repo: entry.source.repo, ref: entry.source.ref, isLocal }, home)
+  const key = cacheKeyForSource(entry.source.repo, isLocal, entry.source.ref ?? null)
+  const cacheDir = join(reposDirFor(home), key)
+  replaceCacheDir(tmp, cacheDir)
+  const assetAbs = join(cacheDir, entry.source.path)
+  relink(entry, assetAbs, config, { home })
+  entry.status = 'installed'
+  entry.source.commit = newCommit ?? entry.source.commit
+  entry.source.fetchedAt = new Date().toISOString()
+  return { commit: newCommit }
+}
+
 /**
  * aas update 主流程。返回打印行数组。
  * opts: { editor, configPath, home, isTTY, env }
