@@ -6,7 +6,7 @@
  *   新格式：{ schemaVersion, editors, sources, linkTargets } —— 编辑器适配器 + 源登记 + 链接形态
  *
  * 载入器必须两种都认（设计稿 §3「配置文件的演进纪律」）：
- * normalizeConfig 把两种都归一成 { schemaVersion, editors, sources, targets }，
+ * normalizeConfig 把两种都归一成 { schemaVersion, editors, sources, targets, skills }，
  * 其中 targets 永远是链接形态的原始条目数组（直接喂给 sync.mjs 的 buildTargets）。
  */
 export const SUPPORTED_SCHEMA_VERSION = 1
