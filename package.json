@@ -15,7 +15,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test test/sync.test.mjs test/config.test.mjs test/ledger.test.mjs test/editors.test.mjs test/add.test.mjs test/import.test.mjs",
+    "test": "node --test test/sync.test.mjs test/config.test.mjs test/ledger.test.mjs test/editors.test.mjs test/add.test.mjs test/import.test.mjs test/catalog.test.mjs test/cli-version.test.mjs test/deps.test.mjs test/update.test.mjs",
     "doctor": "node src/main.mjs doctor",
     "localg": "npm install -g .",
     "localg:rm": "npm uninstall -g agent-assets-sync"

@@ -23,6 +23,9 @@ import {
 import { normalizeConfig } from './config.mjs'
 import { readLedger, writeLedger, defaultLedgerPath } from './ledger.mjs'
 import { cacheKeyForSource, reposDirFor } from './add.mjs'
+import { resolveSkillDeps } from './deps.mjs'
+import { ensureSkillDep } from './add.mjs'
+import { ensureCli } from './cli-version.mjs'
 
 function runGit(args, cwd) {
   try {
@@ -210,6 +213,34 @@ export async function runUpdate({ name, all, opts }) {
     }
     writeLedger(ledgerPath, ledger)
   }
+
+  // 依赖重校验（spec §5.2）：刷新完每个 skill 条目后解析其依赖
+  const depSummary = { installed: [], refreshed: [], cliUpdated: [], cliInstalled: [], failures: [] }
+  for (const e of entries) {
+    if (e.kind !== 'skill') continue
+    const isLocal = typeof e.source.repo === 'string' && !e.source.repo.includes('://')
+    const manifestDir = join(reposDirFor(home), cacheKeyForSource(e.source.repo, isLocal, e.source.ref ?? null))
+    const sd = join(manifestDir, 'skilldependencies')
+    if (!existsSync(sd)) continue
+    const ensureSkill = (name, sourceCtx) => ensureSkillDep({
+      name, sourceCtx, manifestRoot: manifestDir, editorName: e.editor, editor: config.editors?.[e.editor],
+      config, ledger, ledgerPath, home, opts: { editor: e.editor, isTTY: false },
+    })
+    const r = await resolveSkillDeps({
+      skill: e.id, rootManifestDir: sd, rootSourceCtx: 'inherit',
+      ensureSkill, ensureCli,
+    })
+    depSummary.installed.push(...r.installed)
+    depSummary.refreshed.push(...r.refreshed)
+    depSummary.cliUpdated.push(...r.cliUpdated)
+    depSummary.cliInstalled.push(...r.cliInstalled)
+    depSummary.failures.push(...r.failures)
+  }
+  for (const n of depSummary.installed) lines.push(`· 依赖安装  ${n}`)
+  for (const n of depSummary.refreshed) lines.push(`· 依赖刷新  ${n}`)
+  for (const r of depSummary.cliUpdated) lines.push(`· CLI 更新  ${r.name}  ${r.detail}`)
+  for (const r of depSummary.cliInstalled) lines.push(`· CLI 安装  ${r.name}  ${r.detail}`)
+  for (const f of depSummary.failures) lines.push(`· 依赖失败  [${f.type}] ${f.name}：${f.detail}`)
 
   lines.push(`→ 完成：内容更新 ${contentUpdated}、修复漂移 ${driftRepaired}、已最新 ${alreadyOk}。账本：${ledgerPath}`)
   return lines
