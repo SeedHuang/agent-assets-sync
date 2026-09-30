@@ -281,3 +281,18 @@ test('resolveAddSource：默认先当源解析（URL），不是源才走目录/
   assert.equal(localCtx.ok, false)
   assert.match(localCtx.reason, /本地未找到/)
 })
+
+test('add：缓存已存在（复用）时输出缓存过期提示行（B3 / I1）', async () => {
+  const home = makeHome()
+  const srcDir = makeSourceDir(tmp())
+  const cfgPath = join(home, 'cfg.json')
+  writeFileSync(cfgPath, JSON.stringify(makeConfig(home)), 'utf8')
+
+  // 第一次 add：cloneToCache 新建缓存 → reused=false，无提示行
+  const first = await addSelftest(home, cfgPath, srcDir)
+  assert.ok(!first.some((l) => l.includes('缓存可能过期')), '首次不应出现过期提示')
+
+  // 第二次 add：缓存已存在 → cloneToCache 返回 reused=true → 出现提示行（即使资产被跳过，提示在源解析时就已产生）
+  const second = await addSelftest(home, cfgPath, srcDir)
+  assert.ok(second.some((l) => l.includes('提示：缓存可能过期')), second.join('\n'))
+})

@@ -144,15 +144,23 @@ function runNpxAdd(name) {
   }
 }
 
-/** 依赖技能 ensure（spec §5.2 / M1 / B1）：装或刷新单个依赖技能，返回其清单目录 */
-export async function ensureSkillDep({ name, sourceCtx, manifestRoot, editorName, editor, config, ledger, ledgerPath, home, opts }) {
+/**
+ * 依赖技能 ensure（spec §5.2 / M1 / B1）：装或刷新单个依赖技能，返回其清单目录。
+ * parentSource（{ repo, ref, commit }）：依赖技能的「真实来源」，inherit 时用它记账——
+ * 账本里绝不允许出现 repo=null 的条目，否则 update --all 分组 / remove --purge 反查
+ * 缓存会对 null 走 new URL 抛 Invalid URL（最终评审 C1）。
+ */
+export async function ensureSkillDep({ name, sourceCtx, manifestRoot, editorName, editor, config, ledger, ledgerPath, home, opts, parentSource }) {
   let depRoot
+  let depSource
   if (sourceCtx === 'inherit') {
     depRoot = manifestRoot // 与主技能同源：清单目录所在源根
+    depSource = parentSource ?? { repo: null, ref: null, commit: null }
   } else {
     const src = parseSource(sourceCtx, config)
-    const { cacheDir } = cloneToCache(src, { home })
+    const { cacheDir, commit } = cloneToCache(src, { home })
     depRoot = cacheDir
+    depSource = { repo: src.url, ref: src.ref, commit }
   }
   const existing = findEntry(ledger, name, editorName)
   if (existing) {
@@ -165,7 +173,10 @@ export async function ensureSkillDep({ name, sourceCtx, manifestRoot, editorName
     return { ok: false, error: `已存在但非 aas 管理：用 aas import 收编或手动移除（${name}）` }
   }
   const abs = join(depRoot, 'skills', name)
-  const asset = { id: name, kind: 'skill', originalName: name, path: relative(depRoot, abs), abs, repo: null, ref: null, commit: null }
+  const asset = {
+    id: name, kind: 'skill', originalName: name, path: relative(depRoot, abs), abs,
+    repo: depSource.repo, ref: depSource.ref, commit: depSource.commit,
+  }
   const action = await installOne({ asset, editorName, editor, config, ledger, ledgerPath, home, opts })
   if (action !== 'installed') return { ok: false, error: `${name} 安装未完成（${action}）` }
   return { ok: true, action: 'installed', manifestDir: join(depRoot, 'skilldependencies') }
@@ -370,10 +381,12 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
     // R11：目录命中时 context.source 是字符串；resolveAddSource 的 parseSource 成功路径是 {url,ref,isLocal}
     const rawSource = ctx.context.source
     src = typeof rawSource === 'string' ? parseSource(rawSource, config) : rawSource
-    const { cacheDir, commit: c } = cloneToCache(src, { home })
+    const { cacheDir, commit: c, reused } = cloneToCache(src, { home })
     rootDir = cacheDir; commit = c
     lines.push(`源：${src.url}${src.ref ? `（ref: ${src.ref}）` : ''}`)
     lines.push(`缓存：${cacheDir}${commit ? `（commit ${commit.slice(0, 12)}）` : ''}`)
+    // B3（spec §5.2 步 4）：复用缓存不等于最新——明确提示可能过期，要不要清理由用户决定
+    if (reused) lines.push('· 提示：缓存可能过期，如需最新请先清理缓存（~/.aas/repos）')
   }
 
   const assets = listAssets(rootDir)
@@ -417,6 +430,8 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
         if (existsSync(manifestDir)) {
           const ensureSkill = (name, sourceCtx) => ensureSkillDep({
             name, sourceCtx, manifestRoot: rootDir, editorName, editor, config, ledger, ledgerPath, home, opts: { ...opts, isTTY },
+            // C1：inherit 依赖继承父条目的真实来源（source 源用 URL/ref/commit；path 源用本地目录）
+            parentSource: ctx.context.kind === 'source' ? { repo: src.url, ref: src.ref, commit } : { repo: rootDir, ref: null, commit },
           })
           const r = await resolveSkillDeps({
             skill: asset.id, rootManifestDir: manifestDir, rootSourceCtx: 'inherit',

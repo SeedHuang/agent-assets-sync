@@ -56,3 +56,29 @@ test('resolveSkillDeps：cli 依赖汇总 updated / error', async () => {
   assert.equal(calls[0], 'prettier')
   assert.equal(r.cliUpdated.length, 1)
 })
+
+test('resolveSkillDeps：ensureSkill 抛异常 → failures 记 skill 失败，不中断批次（I2）', async () => {
+  const mdir = tmpManifestDir({ 'a.json': JSON.stringify({ schemaVersion: 1, skill: 'a', dependencies: { skills: [{ name: 'b' }] } }) })
+  const ensureSkill = () => { throw new Error('clone 失败') }
+  const r = await resolveSkillDeps({ skill: 'a', rootManifestDir: mdir, rootSourceCtx: 'inherit', ensureSkill, ensureCli: () => ({ action: 'ok', name: '', detail: '' }) })
+  assert.equal(r.failures.length, 1)
+  assert.equal(r.failures[0].type, 'skill')
+  assert.equal(r.failures[0].name, 'b')
+  assert.match(r.failures[0].detail, /clone 失败/)
+  assert.equal(r.installed.length, 0, 'installed 应为空')
+})
+
+test('resolveSkillDeps：ensureCli 抛异常 → failures 记 cli 失败，批次继续（I2）', async () => {
+  const mdir = tmpManifestDir({ 'a.json': JSON.stringify({ schemaVersion: 1, skill: 'a', dependencies: { cli: [{ name: 'prettier', versionSource: 'npm' }, { name: 'eslint', versionSource: 'npm' }] } }) })
+  const ensureCli = (c) => {
+    if (c.name === 'prettier') throw new Error('boom')
+    return { action: 'updated', name: c.name, detail: '→ 1.0.0' }
+  }
+  const r = await resolveSkillDeps({ skill: 'a', rootManifestDir: mdir, rootSourceCtx: 'inherit', ensureSkill: () => ({ ok: true, action: 'installed', manifestDir: mdir }), ensureCli })
+  assert.equal(r.failures.length, 1)
+  assert.equal(r.failures[0].type, 'cli')
+  assert.equal(r.failures[0].name, 'prettier')
+  assert.match(r.failures[0].detail, /boom/)
+  assert.equal(r.cliUpdated.length, 1, '批次继续：eslint 仍应被处理')
+  assert.equal(r.cliUpdated[0].name, 'eslint')
+})

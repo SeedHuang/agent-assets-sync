@@ -64,7 +64,14 @@ export async function resolveSkillDeps({ skill, rootManifestDir, rootSourceCtx, 
     }
     for (const d of manifest.skills) {
       const dCtx = d.source ?? cur.sourceCtx // R2：省略 source 继承当前源
-      const r = await ensureSkill(d.name, dCtx)
+      let r
+      try {
+        r = await ensureSkill(d.name, dCtx)
+      } catch (e) {
+        // I2（违 R6/O1）：注入回调抛异常（parseSource/clone 失败等）不能中断整批——记入 failures 继续
+        failures.push({ type: 'skill', name: d.name, detail: e.message })
+        continue
+      }
       if (!r.ok) {
         failures.push({ type: 'skill', name: d.name, detail: r.error })
         continue
@@ -74,7 +81,13 @@ export async function resolveSkillDeps({ skill, rootManifestDir, rootSourceCtx, 
       queue.push({ name: d.name, manifestDir: r.manifestDir, sourceCtx: dCtx })
     }
     for (const c of manifest.cli) {
-      const r = await ensureCli(c)
+      let r
+      try {
+        r = await ensureCli(c)
+      } catch (e) {
+        failures.push({ type: 'cli', name: c.name, detail: e.message })
+        continue
+      }
       if (r.action === 'updated') cliUpdated.push(r)
       else if (r.action === 'installed') cliInstalled.push(r)
       else if (r.action === 'error') failures.push({ type: 'cli', name: c.name, detail: r.detail })

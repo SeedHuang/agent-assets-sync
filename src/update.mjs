@@ -225,6 +225,8 @@ export async function runUpdate({ name, all, opts }) {
     const ensureSkill = (name, sourceCtx) => ensureSkillDep({
       name, sourceCtx, manifestRoot: manifestDir, editorName: e.editor, editor: config.editors?.[e.editor],
       config, ledger, ledgerPath, home, opts: { editor: e.editor, isTTY: false, copy: e.mode === 'copy' },
+      // C1：inherit 依赖继承父条目的真实来源——绝不让 repo=null 进账本，否则 update --all / remove --purge 会崩
+      parentSource: { repo: e.source.repo, ref: e.source.ref, commit: e.source.commit },
     })
     const r = await resolveSkillDeps({
       skill: e.id, rootManifestDir: sd, rootSourceCtx: 'inherit',
