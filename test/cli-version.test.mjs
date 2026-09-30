@@ -60,3 +60,14 @@ test('ensureCli：取版本失败 → error 带命令原文与退出码（R6）'
   assert.equal(r.action, 'error')
   assert.match(r.detail, /prettier --version.*127.*cannot run/s)
 })
+
+test('ensureCli：本地缺失（ENOENT）→ 安装', async () => {
+  const exec = (cmd, args) => {
+    if (cmd === 'prettier' && args[0] === '--version') throw Object.assign(new Error('ENOENT'), { code: 'ENOENT', status: null })
+    if (cmd === 'npm' && args[0] === 'view') return '2.5.0\n'
+    if (cmd === 'npm' && args[0] === 'install') return 'added\n'
+    throw new Error('unexpected ' + cmd)
+  }
+  const r = await ensureCli({ name: 'prettier', versionSource: 'npm' }, { exec })
+  assert.equal(r.action, 'installed')
+})

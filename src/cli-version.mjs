@@ -35,7 +35,7 @@ function runCmd(cmd, args, { exec = execFileSync } = {}) {
     return { ok: true, out: exec(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() }
   } catch (e) {
     const stderr = String(e.stderr || e.message || '').trim().split(/\r?\n/).slice(-3).join(' | ')
-    return { ok: false, error: { cmd: [cmd, ...args].join(' '), code: e.status ?? '?', stderr } }
+    return { ok: false, error: { cmd: [cmd, ...args].join(' '), status: e.status ?? '?', syscode: e.code, stderr } }
   }
 }
 
@@ -65,12 +65,15 @@ export async function ensureCli({ name, versionSource, minVersion }, { exec = ex
     return { name, action: 'error', detail: `不能自动更新正在运行的 aas 自身，请手动 npm install -g ${name}@latest 后重跑` }
   }
   const lv = localVersion(name, { exec })
-  if (!lv.ok) return { name, action: 'error', detail: `无法获取本地版本：${lv.error.cmd}（退出码 ${lv.error.code}）${lv.error.stderr}` }
+  if (!lv.ok && lv.error.syscode !== 'ENOENT') {
+    return { name, action: 'error', detail: `无法获取本地版本：${lv.error.cmd}（退出码 ${lv.error.status}）${lv.error.stderr}` }
+  }
   const rv = remoteVersion(name, { exec })
-  if (!rv.ok) return { name, action: 'error', detail: `无法获取远端版本：${rv.error.cmd}（退出码 ${rv.error.code}）${rv.error.stderr}` }
-  const local = lv.out.trim(), remote = rv.out.trim()
+  if (!rv.ok) return { name, action: 'error', detail: `无法获取远端版本：${rv.error.cmd}（退出码 ${rv.error.status}）${rv.error.stderr}` }
+  const local = lv.ok ? lv.out.trim() : null // ENOENT → 本地缺失（spec §5.3 步 3）
+  const remote = rv.out.trim()
   if (!needsUpdate({ local, remote, minVersion })) return { name, action: 'ok', detail: `已满足（本地 ${local} / 远端 ${remote}）` }
   const up = runCmd('npm', ['install', '-g', `${name}@latest`], { exec })
-  if (!up.ok) return { name, action: 'error', detail: `${up.error.cmd}（退出码 ${up.error.code}）${up.error.stderr}` }
+  if (!up.ok) return { name, action: 'error', detail: `${up.error.cmd}（退出码 ${up.error.status}）${up.error.stderr}` }
   return { name, action: local ? 'updated' : 'installed', detail: `→ ${remote}` }
 }
