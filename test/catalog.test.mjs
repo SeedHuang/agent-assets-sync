@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { resolveSourceForName, lookupCatalog } from '../src/catalog.mjs'
 
@@ -37,10 +37,12 @@ test('resolveSourceForName：--islocal + localPath → path（工作副本）', 
 })
 
 test('resolveSourceForName：--islocal 无 localPath 有缓存 → path（缓存）', () => {
+  const cachePath = join(homedir(), '.aas', 'repos', 'github.com/seedhuang/retro-skills')
   const r = resolveSourceForName('evolving-skills', cfg, {
-    isLocal: true, exists: (p) => fakeExists(p) || p.includes(homedir()),
+    isLocal: true, exists: (p) => fakeExists(p) || p === cachePath,
   })
   assert.equal(r.context.kind, 'path')
+  assert.equal(r.context.path, cachePath)
 })
 
 test('resolveSourceForName：--islocal 都无 → 本地未找到（不联网）', () => {

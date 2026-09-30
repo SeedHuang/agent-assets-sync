@@ -32,7 +32,7 @@ export function resolveSourceForName(name, config, { home = homedir(), isLocal =
       if (entry.localPath && exists(resolve(expandHome(entry.localPath, home)))) {
         return { ok: true, context: { kind: 'path', path: resolve(expandHome(entry.localPath, home)) } }
       }
-      const key = cacheKeyForSource(entry.source, false)
+      const key = cacheKeyForSource(entry.source.replace(/\.git$/, ''), false)
       const cacheDir = join(home, '.aas', 'repos', key)
       if (exists(cacheDir)) return { ok: true, context: { kind: 'path', path: cacheDir } }
       return { ok: false, reason: `本地未找到：${name}（localPath 不存在、缓存也没有）` }
