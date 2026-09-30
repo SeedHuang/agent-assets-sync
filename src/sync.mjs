@@ -362,7 +362,8 @@ function applyOne(r, opts = {}) {
   // 2) 替换"真实副本 / 指错的链接"——会删东西，必须显式 --replace
   if (r.wrong.length) {
     if (!opts.replace) {
-      log.push(`跳过需替换的 ${r.wrong.length} 项（会删东西，加 --replace 才做）：${r.wrong.map((x) => x.dstName).join('、')}`)
+      log.push(`这 ${r.wrong.length} 项没动（里头是"旧副本"或"指错地方的链接"；删东西得你点头）：${r.wrong.map((x) => x.dstName).join('、')}`)
+      log.push(`下一步：aas sync --replace   （把上面这几项删掉，换成指向你源仓库的链接）`)
     } else {
       for (const item of r.wrong) {
         const dstFull = join(t.dstDir, item.dstName)
@@ -380,7 +381,8 @@ function applyOne(r, opts = {}) {
   ]
   if (junk.length) {
     if (!opts.rmOld) {
-      log.push(`保留残留 ${junk.length} 项（会删东西，加 --rm-old 才清）：${junk.map((x) => x.name).join('、')}`)
+      log.push(`留着 ${junk.length} 项没清（旧名残留 / 源里已经没有的失效链接）：${junk.map((x) => x.name).join('、')}`)
+      log.push(`下一步：aas sync --rm-old   （把这些残留清掉）`)
     } else {
       for (const x of junk) {
         removeLinkOrCopy(x.full)
@@ -464,7 +466,7 @@ function main(argv = process.argv.slice(2)) {
     return 0
   }
 
-  console.log(`\n${args.apply ? '== 执行同步（--apply）==' : '== 体检（只读，不改动任何东西）=='}`)
+  console.log(`\n${args.apply ? '== 执行同步 ==' : '== 体检（只读，不改动任何东西）=='}`)
   console.log(`配置：${resolve(configPath)}\n`)
   if (ledgerWarn) console.log(`⚠ 账本不可读，aas 条目按普通分类处理：${ledgerWarn}\n`)
 
@@ -472,6 +474,11 @@ function main(argv = process.argv.slice(2)) {
   let failed = false
   let skippedDrift = false // --apply 后仍有因缺显式 flag 而没处理的差异
   let aasDriftFound = false // 发现 aas 账本条目漂移（修复入口是 aas update，不是 --apply）
+  // 终态计数：同步完要报"实际动了几项、现在什么状态"，不能拿改前快照当结果
+  let createdCount = 0 // 新建的链接数
+  let replacedCount = 0 // 替换掉的"真实副本 / 指错的链接"数
+  let cleanedCount = 0 // 清掉的残留数
+  let okAfterCount = 0 // 同步后"已就位"的条目数（终态）
 
   for (const t of targets) {
     let r
@@ -488,7 +495,7 @@ function main(argv = process.argv.slice(2)) {
     console.log(`   源：${t.srcDir}`)
     console.log(`   目标：${t.dstDir}`)
     console.log(
-      `   已就位 ${r.ok.length} ｜ 需建链接 ${r.needLink.length} ｜ 需替换 ${r.wrong.length} ｜ 待迁移旧名 ${r.legacy.length} ｜ 自家残留 ${r.staleSelf.length} ｜ 孤儿(不动) ${r.orphans.length}`,
+      `   ${args.apply ? '改前' : '现状'}：已就位 ${r.ok.length} ｜ 需建链接 ${r.needLink.length} ｜ 需替换 ${r.wrong.length} ｜ 待迁移旧名 ${r.legacy.length} ｜ 自家残留 ${r.staleSelf.length} ｜ 孤儿(不动) ${r.orphans.length}`,
     )
     if (r.aasInstall?.length) console.log(`   aas 安装 ${r.aasInstall.length}`)
     for (const x of r.ok) console.log(`   ✓ ${x.dstName}`)
@@ -522,9 +529,15 @@ function main(argv = process.argv.slice(2)) {
     const targetHasIssue = r.needLink.length || r.wrong.length || r.legacy.length || r.staleSelf.length
     if (targetHasIssue) hasIssue = true
 
+    // 终态累计：同步完成后这个目标会有多少条目"已就位"
+    okAfterCount += r.ok.length + r.needLink.length + (args.replace ? r.wrong.length : 0)
+
     if (args.apply && targetHasIssue) {
       try {
         for (const line of applyOne(r, args)) console.log(`   · ${line}`)
+        createdCount += r.needLink.length
+        replacedCount += args.replace ? r.wrong.length : 0
+        cleanedCount += args.rmOld ? r.legacy.length + r.staleSelf.length : 0
         // 有差异因没给显式 flag 而被跳过 → 退出码按约定给 1（0=一致 1=有差异），别让自动化把「仍不一致」当成「已收敛」
         if ((r.wrong.length > 0 && !args.replace) || ((r.legacy.length > 0 || r.staleSelf.length > 0) && !args.rmOld)) {
           skippedDrift = true
@@ -543,16 +556,22 @@ function main(argv = process.argv.slice(2)) {
   }
   if (args.apply) {
     if (skippedDrift) {
-      console.log('→ 同步完成，但仍有差异因未给显式 flag（--replace / --rm-old）被跳过。再跑一次体检确认：node src/sync.mjs\n')
+      console.log(`→ 已建好 ${createdCount} 个链接；但还有几项没动——它们要删东西，得你点头才做。\n`)
+      console.log('  下一步：aas sync --replace       把那些旧副本 / 指错的链接，换成指向你源仓库的链接')
+      console.log('  如果上面还提到有残留没清，就再加上：aas sync --replace --rm-old\n')
       return 1
     }
-    console.log('→ 同步完成。请再跑一次体检确认：node src/sync.mjs\n')
+    if (createdCount + replacedCount + cleanedCount === 0) {
+      console.log(`→ 全部一致，无需改动（各目标见上，合计已就位 ${okAfterCount} 个）。\n`)
+    } else {
+      console.log(`→ 同步成功：新建链接 ${createdCount} 个、替换 ${replacedCount} 个、清理残留 ${cleanedCount} 个（各目标见上，合计已就位 ${okAfterCount} 个）。\n`)
+    }
     return 0
   }
   if (hasIssue) {
     console.log(aasDriftFound
-      ? '→ 有差异。链接形态的可执行 node src/sync.mjs --apply；aas 条目漂移的跑 aas update --all\n'
-      : '→ 有差异。确认无误后执行：node src/sync.mjs --apply\n')
+      ? '→ 有差异，分两种：\n   · 你源仓库里的技能 / 规则 → 跑：aas sync\n   · 从远端装的（账本条目）漂移 → 跑：aas update --all\n'
+      : '→ 有差异。下一步：aas sync   （只加不删；遇到要删的，它会再提示你加 --replace）\n')
   } else {
     console.log('→ 全部一致，无需同步。\n')
   }

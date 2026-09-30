@@ -143,7 +143,12 @@ export async function runUpdate({ name, all, opts }) {
     entries = ledger.entries.filter((e) => e.id === name && (!opts.editor || e.editor === opts.editor))
     if (entries.length === 0) {
       const ids = [...new Set(ledger.entries.map((e) => `${e.id}@${e.editor}`))]
-      throw new Error(`账本里没有 "${name}"${opts.editor ? `（编辑器 ${opts.editor}）` : ''}；可选：${ids.join('、') || '（账本是空的）'}`)
+      throw new Error(
+        `账本里没有 "${name}"${opts.editor ? `（编辑器 ${opts.editor}）` : ''}。\n` +
+          '  说明：账本只记「从远端仓库装的」资产（aas add 装的那些）。\n' +
+          '  如果你要的是「你自己源仓库里的技能 / 规则」，它不走账本、也不需要 update —— 改用：aas sync\n' +
+          `  账本里现有：${ids.join('、') || '（账本是空的）'}`,
+      )
     }
   } else if (all) {
     entries = [...ledger.entries]
