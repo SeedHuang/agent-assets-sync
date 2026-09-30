@@ -23,6 +23,13 @@ export function normalizeConfig(raw) {
   const sources = raw.sources ?? {}
   if (typeof editors !== 'object' || Array.isArray(editors)) throw new Error('配置的 editors 应为对象')
   if (typeof sources !== 'object' || Array.isArray(sources)) throw new Error('配置的 sources 应为对象')
+  // sources 的值要逐条校验：parseSource 会直接拿它当 URL 字符串用（s.includes('://')），
+  // 值写成对象/数字会崩成难懂的 TypeError，而不是一句可定位的配置错误
+  for (const [name, url] of Object.entries(sources)) {
+    if (typeof url !== 'string' || url.trim() === '') {
+      throw new Error(`配置 sources 条目应为非空字符串：${name}`)
+    }
+  }
 
   const skills = raw.skills ?? {}
   if (typeof skills !== 'object' || Array.isArray(skills)) throw new Error('配置的 skills 应为对象')
@@ -35,8 +42,7 @@ export function normalizeConfig(raw) {
   let targets
   if (Array.isArray(raw.linkTargets)) targets = raw.linkTargets
   else if (Array.isArray(raw.targets)) targets = raw.targets // 旧格式
-  else throw new Error('配置里没有 targets/linkTargets（应为非空数组）')
-  if (!Array.isArray(targets)) throw new Error('配置里没有 targets/linkTargets（应为非空数组）')
+  else throw new Error('配置里没有 targets/linkTargets（应为数组）')
 
   return { schemaVersion, editors, sources, targets, skills }
 }

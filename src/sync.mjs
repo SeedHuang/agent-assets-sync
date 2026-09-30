@@ -35,15 +35,17 @@
  */
 
 import {
-  readdirSync, lstatSync, symlinkSync, unlinkSync, rmdirSync, rmSync,
+  readdirSync, lstatSync, symlinkSync, unlinkSync, rmdirSync,
   readFileSync, existsSync, mkdirSync, readlinkSync, realpathSync,
 } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, resolve, dirname } from 'node:path'
+import { join, resolve, dirname, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { normalizeConfig } from './config.mjs'
 import { readLedger, runtimePathsIndex, reclassifyWithLedger, defaultLedgerPath } from './ledger.mjs'
+import { detectDrift } from './update.mjs'
+import { cacheKeyForSource, reposDirFor } from './add.mjs'
 
 const HOME = homedir()
 /** 默认配置文件：本项目根下的 sync.config.json（src/ 的上一级） */
@@ -245,12 +247,23 @@ function fingerprint(p) {
 function removeLinkOrCopy(p) {
   const lt = linkTarget(p)
   if (lt) {
-    try { rmdirSync(p) } catch { unlinkSync(p) } // junction → rmdir；symlink → unlink
+    // 是链接（symlink 或 junction）。按 lstat 的形态选摘除原语，不做"失败就换一种"的盲试：
+    //   目录形态（junction / 目录 symlink；Windows 的 lstat 对 junction 报 isDirectory()=true）→ rmdir 只摘链本身
+    //   文件形态（symlink-to-file；POSIX 的 lstat 对 symlink 不报 directory）→ unlink
+    if (lstatSync(p).isDirectory()) rmdirSync(p)
+    else unlinkSync(p)
     return
   }
   const st = lstatSync(p)
-  if (st.isDirectory()) rmSync(p, { recursive: true, force: true })
-  else unlinkSync(p)
+  if (st.isDirectory()) {
+    // 真目录不能 rmSync recursive：子项里若嵌着 junction，Node 的递归删除会把它当普通目录
+    // 删进去（lstat 对 junction 报 isSymbolicLink()=false），删到 junction 指向的真实文件。
+    // 逐项走本函数：链接只摘链本身，真目录继续递归，最后只剩空壳时 rmdir 掉
+    for (const name of readdirSync(p)) removeLinkOrCopy(join(p, name))
+    rmdirSync(p)
+  } else {
+    unlinkSync(p)
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -291,7 +304,9 @@ function inspect(t) {
       needLink.push({ dstName, info, why: '链接已断（目标不存在）' })
       continue
     }
-    if (resolve(lt) !== resolve(info.srcFull)) {
+    // 相对目标要以「链接所在目录」为基准解析——别的工具建的链接可能是相对的，
+    // 对 cwd 解析会把明明指对的链接误判成「指向别处」，--replace 下被删掉重建
+    if (resolve(dirname(dstFull), lt) !== resolve(info.srcFull)) {
       wrong.push({ dstName, info, why: `链接指向别处：${lt}` })
       continue
     }
@@ -304,8 +319,11 @@ function inspect(t) {
     const full = join(t.dstDir, name)
     const lt = linkTarget(full)
 
-    // 是不是"我们自己留下的"？—— 链接指向 srcDir 里的某个（而现在源里已无此文件的）路径
-    if (lt && resolve(lt) !== resolve(t.srcDir) && dirname(resolve(lt)).startsWith(resolve(t.srcDir))) {
+    // 是不是"我们自己留下的"？—— 链接指向 srcDir 里的某个（而现在源里已无此文件的）路径。
+    // 用 relative + 边界判断，别用 startsWith：srcDir 叫 ...\rules 时，指向 ...\rules-old\x.md
+    // 的无关链接会因纯前缀巧合被误判成自家残留，--rm-old 下被删掉
+    const rel = lt ? relative(resolve(t.srcDir), resolve(dirname(full), lt)) : ''
+    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
       staleSelf.push({ name, full, target: lt })
       continue
     }
@@ -410,6 +428,7 @@ function main(argv = process.argv.slice(2)) {
   const configPath = args.configPath ?? DEFAULT_CONFIG_PATH
   let targets
   let ledgerPaths = new Set()
+  let ledgerEntries = []
   let ledgerWarn = null
   try {
     const cfg = normalizeConfig(loadConfig(configPath))
@@ -419,10 +438,17 @@ function main(argv = process.argv.slice(2)) {
     return 2
   }
   try {
-    ledgerPaths = runtimePathsIndex(readLedger(defaultLedgerPath()))
+    ledgerEntries = readLedger(defaultLedgerPath()).entries
+    ledgerPaths = runtimePathsIndex({ entries: ledgerEntries })
   } catch (e) {
-    // 账本读不了 → aas 条目按普通分类处理（不拦截），但不能崩
-    ledgerWarn = String(e.message).split('\n')[0]
+    // 账本读不了 → aas 条目失去豁免保护。只读体检可以放行（打警告，保留完整报错）；
+    // 但 --replace / --rm-old 会因此失去对 aas 安装条目的唯一拦截——比如 --copy 装的副本
+    // 内容与本地源一致时会被当成「旧名残留」删掉，不可恢复。删类动作必须拦下
+    if (args.apply && (args.replace || args.rmOld)) {
+      console.error(`✗ 账本不可读，拒绝执行删类动作（--replace / --rm-old）：\n${e.message}`)
+      return 2
+    }
+    ledgerWarn = String(e.message)
   }
 
   if (args.command === 'list') {
@@ -444,6 +470,8 @@ function main(argv = process.argv.slice(2)) {
 
   let hasIssue = false
   let failed = false
+  let skippedDrift = false // --apply 后仍有因缺显式 flag 而没处理的差异
+  let aasDriftFound = false // 发现 aas 账本条目漂移（修复入口是 aas update，不是 --apply）
 
   for (const t of targets) {
     let r
@@ -471,11 +499,36 @@ function main(argv = process.argv.slice(2)) {
     for (const x of r.orphans) console.log(`   ？ 孤儿（不属于本脚本管理，不动）：${x.name}${x.isLink ? ' [链接]' : ''}`)
     for (const x of r.aasInstall ?? []) console.log(`   a ${x.name}  （aas 安装，按账本豁免${x.via ? `；原分类：${x.via}` : ''}）`)
 
-    if (r.needLink.length || r.wrong.length || r.legacy.length || r.staleSelf.length) hasIssue = true
+    // aas 条目三态漂移核对（设计稿 §6）：命中本目标的账本条目逐个核（断链 / 副本化 / 指向别处）。
+    // 只报告不动手——修复入口是 aas update，sync 不碰账本条目。不核对的话，条目漂移了这里
+    // 仍报「全部一致」，用户永远不会知道该跑 aas update
+    for (const e of ledgerEntries) {
+      if (typeof e.runtimePath !== 'string' || e.runtimePath === '') continue
+      if (relative(resolve(t.dstDir), dirname(resolve(expandHome(e.runtimePath, HOME)))) !== '') continue
+      const repo = e.source?.repo
+      const assetRel = e.source?.path
+      if (typeof repo !== 'string' || typeof assetRel !== 'string') continue
+      const key = cacheKeyForSource(repo, !repo.includes('://'), e.source.ref ?? null)
+      const drift = detectDrift(e, join(reposDirFor(HOME), key, assetRel), { home: HOME })
+      if (drift) {
+        console.log(`   ！ aas 条目漂移  ${e.runtimeName}  （${drift}）→ 下一步：aas update ${e.id}`)
+        hasIssue = true
+        aasDriftFound = true
+      }
+    }
 
-    if (args.apply && hasIssue) {
+    // 「本目标要不要执行 apply」和「总体有没有差异（决定退出码）」是两件事：
+    // 共用一个变量的话，第一个目标有差异后，后面已经干净的目标也会白跑一遍 apply
+    const targetHasIssue = r.needLink.length || r.wrong.length || r.legacy.length || r.staleSelf.length
+    if (targetHasIssue) hasIssue = true
+
+    if (args.apply && targetHasIssue) {
       try {
         for (const line of applyOne(r, args)) console.log(`   · ${line}`)
+        // 有差异因没给显式 flag 而被跳过 → 退出码按约定给 1（0=一致 1=有差异），别让自动化把「仍不一致」当成「已收敛」
+        if ((r.wrong.length > 0 && !args.replace) || ((r.legacy.length > 0 || r.staleSelf.length > 0) && !args.rmOld)) {
+          skippedDrift = true
+        }
       } catch (e) {
         console.log(`   ✗ 同步失败：${e.message}`)
         failed = true
@@ -489,15 +542,25 @@ function main(argv = process.argv.slice(2)) {
     return 2
   }
   if (args.apply) {
+    if (skippedDrift) {
+      console.log('→ 同步完成，但仍有差异因未给显式 flag（--replace / --rm-old）被跳过。再跑一次体检确认：node src/sync.mjs\n')
+      return 1
+    }
     console.log('→ 同步完成。请再跑一次体检确认：node src/sync.mjs\n')
     return 0
   }
-  console.log(hasIssue ? '→ 有差异。确认无误后执行：node src/sync.mjs --apply\n' : '→ 全部一致，无需同步。\n')
+  if (hasIssue) {
+    console.log(aasDriftFound
+      ? '→ 有差异。链接形态的可执行 node src/sync.mjs --apply；aas 条目漂移的跑 aas update --all\n'
+      : '→ 有差异。确认无误后执行：node src/sync.mjs --apply\n')
+  } else {
+    console.log('→ 全部一致，无需同步。\n')
+  }
   return hasIssue ? 1 : 0
 }
 
 const isMain = isDirectRun(process.argv[1], import.meta.url)
-if (isMain) process.exit(main())
+if (isMain) process.exitCode = main() // 不用 process.exit：Windows 上立刻退出有概率丢 stdout 尾部输出
 
 export {
   DEFAULT_CONFIG_PATH,

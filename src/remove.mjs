@@ -4,14 +4,12 @@
  * 按账本精确定位：摘运行时条目 → 销账（先摘后销，中断重跑收敛）。
  * isTTY 守卫：非 TTY 且没给 --yes → 直接报错，绝不静默删（设计稿 §7）。
  */
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { rmSync } from 'node:fs'
-import { expandHome, removeLinkOrCopy, lexists, loadConfig, DEFAULT_CONFIG_PATH } from './sync.mjs'
-import { normalizeConfig } from './config.mjs'
-import { readLedger, writeLedger, defaultLedgerPath } from './ledger.mjs'
-import { cacheKeyForSource } from './add.mjs'
+import { expandHome, removeLinkOrCopy, lexists } from './sync.mjs'
+import { readLedger, writeLedger, defaultLedgerPath, removeEntry } from './ledger.mjs'
+import { cacheKeyForSource, reposDirFor } from './add.mjs'
 
 /**
  * aas remove 主流程。返回打印行数组。
@@ -22,8 +20,7 @@ export async function runRemove({ id, opts }) {
   const isTTY = opts.isTTY ?? false
   const lines = []
 
-  const config = normalizeConfig(loadConfig(opts.configPath ?? DEFAULT_CONFIG_PATH))
-  void config // remove 只认账本；载入配置是为了保持与 add 同一套"配置有效性"前提
+  // remove 只认账本，不读 sync 配置——链接形态的条目不归账本管，本来就不会出现在这里
   const ledgerPath = defaultLedgerPath(home)
   const ledger = readLedger(ledgerPath)
 
@@ -56,15 +53,17 @@ export async function runRemove({ id, opts }) {
     }
     removed++
   }
-  ledger.entries = ledger.entries.filter((e) => !(e.id === id && (!opts.editor || e.editor === opts.editor)))
+  removeEntry(ledger, id, opts.editor)
   writeLedger(ledgerPath, ledger)
 
   if (opts.purge) {
-    const stillReferenced = new Set(ledger.entries.map((e) => cacheKeyForSource(e.source.repo, e.source.repo && !e.source.repo.includes('://'))))
+    // 缓存键必须与 add/update 用同一套算法（含 ref），否则清错/漏清
+    const keyOf = (e) => cacheKeyForSource(e.source.repo, e.source.repo && !e.source.repo.includes('://'), e.source.ref ?? null)
+    const stillReferenced = new Set(ledger.entries.map(keyOf))
     for (const e of matches) {
-      const key = cacheKeyForSource(e.source.repo, e.source.repo && !e.source.repo.includes('://'))
+      const key = keyOf(e)
       if (!stillReferenced.has(key)) {
-        const dir = join(home, '.aas', 'repos', key)
+        const dir = join(reposDirFor(home), key)
         if (existsSync(dir)) {
           rmSync(dir, { recursive: true, force: true })
           lines.push(`· 清缓存  ${key}`)

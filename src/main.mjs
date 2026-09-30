@@ -35,12 +35,15 @@ import { runImport } from './import.mjs'
 import { homedir } from 'node:os'
 
 function run(argvForMain) {
-  process.exit(main(argvForMain))
+  // 不用 process.exit：Windows 上对 TTY/管道的写入是异步的，打完报告立刻退出有概率丢尾部输出。
+  // 设 exitCode 后正常返回，让 Node 自己把 stdout 冲完再退
+  process.exitCode = main(argvForMain)
 }
 
-// 交互判定：真 TTY，或显式设 AAS_FORCE_INTERACTIVE=1（仅供自动化测试驱动模拟按键；
-// 该开关只让交互界面渲染，删除类操作仍受 --yes 约束）。
-const interactive = process.stdin.isTTY === true || process.env.AAS_FORCE_INTERACTIVE === '1'
+// 交互判定：只认真实 TTY。
+// 曾有 AAS_FORCE_INTERACTIVE=1 强制开交互的开关，但它同时把 isTTY 一并置真，
+// 会让非 TTY 下的删除绕过 --yes 强制——与"删除类操作仍受 --yes 约束"的承诺矛盾，已移除。
+const isTTY = process.stdin.isTTY === true
 
 function loadNormalized(configPath) {
   return normalizeConfig(loadConfig(configPath ?? DEFAULT_CONFIG_PATH))
@@ -94,10 +97,10 @@ program
       const cfgPath = opts.config ?? program.opts().config
       const config = loadNormalized(cfgPath)
       for (const line of describeEditors(config, { home: homedir() })) console.log(line)
-      process.exit(0)
+      process.exitCode = 0
     } catch (e) {
       console.error(e.message)
-      process.exit(2)
+      process.exitCode = 2
     }
   })
 
@@ -117,15 +120,15 @@ program
         names,
         opts: {
           editor: opts.editor, yes: opts.yes, copy: opts.copy, as: opts.as,
-          configPath: cfg, home: homedir(), isTTY: interactive,
+          configPath: cfg, home: homedir(), isTTY,
           env: process.env,
         },
       })
       for (const line of lines) console.log(line)
-      process.exit(0)
+      process.exitCode = 0
     } catch (e) {
       console.error(`✗ ${e.message}`)
-      process.exit(2)
+      process.exitCode = 2
     }
   })
 
@@ -143,14 +146,14 @@ program
         id,
         opts: {
           editor: opts.editor, yes: opts.yes, purge: opts.purge,
-          configPath: cfg, home: homedir(), isTTY: interactive,
+          configPath: cfg, home: homedir(), isTTY,
         },
       })
       for (const line of lines) console.log(line)
-      process.exit(0)
+      process.exitCode = 0
     } catch (e) {
       console.error(`✗ ${e.message}`)
-      process.exit(2)
+      process.exitCode = 2
     }
   })
 
@@ -165,20 +168,21 @@ program
       const cfg = opts.config ?? program.opts().config
       if (!name && !opts.all) {
         console.error('✗ 要给资产名，或用 --all 全量刷新')
-        process.exit(2)
+        process.exitCode = 2
+        return
       }
       const lines = await runUpdate({
         name, all: opts.all,
         opts: {
-          editor: opts.editor, configPath: cfg, home: homedir(), isTTY: interactive,
+          editor: opts.editor, configPath: cfg, home: homedir(), isTTY,
           env: process.env,
         },
       })
       for (const line of lines) console.log(line)
-      process.exit(0)
+      process.exitCode = 0
     } catch (e) {
       console.error(`✗ ${e.message}`)
-      process.exit(2)
+      process.exitCode = 2
     }
   })
 
@@ -194,10 +198,10 @@ program
         opts: { configPath: cfg, home: homedir(), env: process.env },
       })
       for (const line of lines) console.log(line)
-      process.exit(0)
+      process.exitCode = 0
     } catch (e) {
       console.error(`✗ ${e.message}`)
-      process.exit(2)
+      process.exitCode = 2
     }
   })
 

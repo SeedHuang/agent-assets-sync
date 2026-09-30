@@ -74,7 +74,8 @@
 ```
 ~/.aas/
 ├── installed.json     账本：装了什么、从哪来、在哪些编辑器、叫什么名
-├── repos/             缓存：<owner>/<repo>/（git clone --depth 1）
+├── repos/             缓存：键 = 来源+分支（git：`<owner>/<repo>`，带 `#分支` 安装的为 `<owner>/<repo>@<分支>`；
+│                       本地目录：`local-<目录名>-<路径短哈希>`——不同目录同名文件夹不共用缓存）
 ├── temp/              安装过程的临时区（用完即清）
 └── installed.json.bak 账本上一次写入前的备份（每次写前滚动）
 ```

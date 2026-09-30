@@ -13,7 +13,9 @@ import { homedir } from 'node:os'
 import { expandHome } from './sync.mjs'
 
 export const LEDGER_SCHEMA_VERSION = 1
-const ENTRY_REQUIRED = ['id', 'kind', 'status', 'editor', 'runtimeName']
+// runtimePath / mode 下游会直接解引用（update 的 detectDrift/relink、remove 的摘除与 --purge）。
+// 不进必填校验的话，残缺账本会把友好报错变成 TypeError，或让 remove 「仅销账」却把真文件留成孤儿
+const ENTRY_REQUIRED = ['id', 'kind', 'status', 'editor', 'runtimeName', 'runtimePath', 'mode']
 
 export function defaultLedgerPath(home = homedir()) {
   return join(home, '.aas', 'installed.json')
@@ -65,9 +67,10 @@ export function findEntry(ledger, id, editor) {
   return ledger.entries.find((e) => e.id === id && e.editor === editor)
 }
 
+/** 摘账：删掉 (id, editor) 的条目并返回条数。editor 不传/传 null 时匹配该 id 的所有编辑器 */
 export function removeEntry(ledger, id, editor) {
   const before = ledger.entries.length
-  ledger.entries = ledger.entries.filter((e) => !(e.id === id && e.editor === editor))
+  ledger.entries = ledger.entries.filter((e) => !(e.id === id && (editor == null || e.editor === editor)))
   return before - ledger.entries.length
 }
 
@@ -84,8 +87,11 @@ export function runtimePathsIndex(ledger, { home = homedir() } = {}) {
 
 /**
  * 体检拦截（设计稿 §6「账本优先，全类豁免」）：
- * 把 inspect 结果里命中账本 runtimePath 的条目从六类中移出，归入 r.aasInstall，
- * 防止被 --replace / --rm-old 误删。via 记录原分类，报告里可追溯。
+ * 把 inspect 结果里命中账本 runtimePath 的条目移出六类，归入 r.aasInstall，
+ * 防止被 sync 的建链/替换/清理动作碰到（--replace / --rm-old 误删）。
+ * 覆盖五类：needLink（缺失/断链——不豁免的话，sync --apply 会把 aas 条目静默重建成
+ * 指向源的链接，等于劫持账本条目）、wrong、legacy、staleSelf、orphans；
+ * ok 无需豁免（本来就不动手）。via 记录原分类，报告里可追溯。
  */
 export function reclassifyWithLedger(r, t, resolvedPaths) {
   r.aasInstall ??= []
@@ -99,6 +105,7 @@ export function reclassifyWithLedger(r, t, resolvedPaths) {
       }
     }
   }
+  move(r.needLink ?? [], 'dstName', '待建链接')
   move(r.orphans ?? [], 'name', '孤儿')
   move(r.wrong ?? [], 'dstName', '需替换')
   move(r.legacy ?? [], 'name', '旧名残留')

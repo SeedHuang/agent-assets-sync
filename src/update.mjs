@@ -5,13 +5,16 @@
  * 同时是三态漂移的修复入口：断链（缓存/运行时没了）、副本化（链接被换成真实副本）、
  * 指向别处 —— 一律"摘旧建新"回到账本记录的形态。
  *
- * 共享缓存语义：同一 repo+ref 的所有账本条目跟随同一条缓存链接——缓存一换，
- * 所有指向它的链接内容同时变新（账本 commit 一并刷新）；只对本次选中的条目做运行时修复。
+ * 共享缓存语义：同一 repo+ref 的所有「链接模式」条目跟随同一条缓存——缓存一换，
+ * 指向它的链接内容同时变新（这些条目的账本 commit 一并刷新）；「副本模式」的运行时
+ * 是真实拷贝，必须被 relink 才算更新，所以 commit 号只推给被 relink 的 copy 条目和
+ * 跟随缓存的 link 条目，绝不能提前推给未 relink 的 copy 条目（否则它们会被永远判成
+ * 「已是最新」，内容却停在旧版，且 detectDrift 不查 copy 模式，再也不会被发现）。
  */
 import {
   existsSync, mkdirSync, rmSync, renameSync, copyFileSync, cpSync, symlinkSync,
 } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import {
@@ -19,7 +22,7 @@ import {
 } from './sync.mjs'
 import { normalizeConfig } from './config.mjs'
 import { readLedger, writeLedger, defaultLedgerPath } from './ledger.mjs'
-import { cacheKeyForSource } from './add.mjs'
+import { cacheKeyForSource, reposDirFor } from './add.mjs'
 
 function runGit(args, cwd) {
   try {
@@ -53,7 +56,7 @@ export function detectDrift(entry, assetAbs, { home = homedir() } = {}) {
 function relink(entry, assetAbs, config, { home }) {
   const p = resolve(expandHome(entry.runtimePath, home))
   if (lexists(p)) removeLinkOrCopy(p)
-  mkdirSync(dirnameSafe(p), { recursive: true })
+  mkdirSync(dirname(p), { recursive: true })
   if (entry.mode === 'copy') {
     if (entry.kind === 'skill') cpSync(assetAbs, p, { recursive: true })
     else copyFileSync(assetAbs, p)
@@ -64,16 +67,11 @@ function relink(entry, assetAbs, config, { home }) {
   return p
 }
 
-function dirnameSafe(p) {
-  const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
-  return i === -1 ? '.' : p.slice(0, i)
-}
-
 /** 拉新版到 temp（git clone / 本地拷贝），返回 { tmp, commit } */
 function fetchFresh(group, home) {
-  const key = cacheKeyForSource(group.repo, group.isLocal)
-  const tmp = join(home, '.aas', 'temp', `${key}-${Date.now()}`)
-  mkdirSync(dirnameSafe(tmp), { recursive: true })
+  const key = cacheKeyForSource(group.repo, group.isLocal, group.ref ?? null)
+  const tmp = join(dirname(reposDirFor(home)), 'temp', `${key}-${Date.now()}`)
+  mkdirSync(dirname(tmp), { recursive: true })
   let commit = null
   if (group.isLocal && !existsSync(join(resolve(group.repo), '.git'))) {
     cpSync(resolve(group.repo), tmp, { recursive: true })
@@ -87,11 +85,26 @@ function fetchFresh(group, home) {
   return { tmp, commit }
 }
 
-/** 真目录递归拷贝（copy 模式换缓存用） */
-function copyTree(from, to) {
-  mkdirSync(dirnameSafe(to), { recursive: true })
-  rmSync(to, { recursive: true, force: true })
-  renameSync(from, to)
+/**
+ * 换缓存（copy 模式换内容用）：先把旧缓存整体改名挪走，再把新版搬进正式位置，最后清掉旧的。
+ * 两步 rename 各自原子，任何一步之间中断都不会出现「缓存目录缺失、所有链接悬空」的窗口；
+ * 搬新失败还会把旧的还回去。
+ */
+function replaceCacheDir(from, to) {
+  mkdirSync(dirname(to), { recursive: true })
+  const old = `${to}.old-${Date.now()}`
+  let hadOld = false
+  try {
+    renameSync(to, old)
+    hadOld = true
+  } catch { /* 旧缓存不存在，无需挪走 */ }
+  try {
+    renameSync(from, to)
+  } catch (e) {
+    if (hadOld) renameSync(old, to) // 搬新失败 → 旧的还回去
+    throw e
+  }
+  if (hadOld) rmSync(old, { recursive: true, force: true })
 }
 
 /**
@@ -100,8 +113,7 @@ function copyTree(from, to) {
  */
 export async function runUpdate({ name, all, opts }) {
   const home = opts.home ?? homedir()
-  const isTTY = opts.isTTY ?? false
-  void isTTY // update 是非破坏性的原位刷新，不需要确认（旧版本仍在 git 历史里）
+  // update 是非破坏性的原位刷新，不需要确认（旧版本仍在 git 历史里），因此不用 isTTY
   const lines = []
 
   const config = normalizeConfig(loadConfig(opts.configPath ?? DEFAULT_CONFIG_PATH))
@@ -126,12 +138,12 @@ export async function runUpdate({ name, all, opts }) {
   }
   lines.push(`目标 ${entries.length} 条（${[...new Set(entries.map((e) => `${e.id}@${e.editor}`))].join('、')}）`)
 
-  // 按来源分组：同一 repo+ref 只拉一次（groupKey 用于分组；cacheKey 用于定位缓存目录）
+  // 按来源分组：同一 repo+ref 只拉一次（groupKey 用于分组；cacheKey 用于定位缓存目录，两者都必须含 ref）
   const groups = new Map()
   for (const e of entries) {
     const isLocal = typeof e.source.repo === 'string' && !e.source.repo.includes('://')
     const groupKey = `${e.source.repo}|${e.source.ref ?? ''}`
-    const cacheKey = cacheKeyForSource(e.source.repo, isLocal)
+    const cacheKey = cacheKeyForSource(e.source.repo, isLocal, e.source.ref ?? null)
     if (!groups.has(groupKey)) groups.set(groupKey, { repo: e.source.repo, ref: e.source.ref, isLocal, cacheKey, entries: [] })
     groups.get(groupKey).entries.push(e)
   }
@@ -141,7 +153,7 @@ export async function runUpdate({ name, all, opts }) {
   let alreadyOk = 0
 
   for (const g of groups.values()) {
-    const cacheDir = join(home, '.aas', 'repos', g.cacheKey)
+    const cacheDir = join(reposDirFor(home), g.cacheKey)
     const { tmp, commit: newCommit } = fetchFresh(g, home)
 
     // 上游路径核对：本次涉及的所有资产路径必须在新版里都还在，否则不动旧缓存
@@ -154,11 +166,12 @@ export async function runUpdate({ name, all, opts }) {
     const commitChanged = newCommit ? g.entries.some((e) => e.source.commit !== newCommit) : true
 
     if (commitChanged || !existsSync(cacheDir)) {
-      // 换缓存：先确认没有别的未选中条目也指这个缓存——它们跟着链接自动变新，账本 commit 一并刷
-      copyTree(tmp, cacheDir)
+      // 换缓存：先确认没有别的未选中条目也指这个缓存——link 模式的跟着链接自动变新，账本 commit 一并刷；
+      // copy 模式的不能推 commit（它的运行时副本没动，见文件头说明）
+      replaceCacheDir(tmp, cacheDir)
       for (const e of ledger.entries) {
         if (`${e.source.repo}|${e.source.ref ?? ''}` === `${g.repo}|${g.ref ?? ''}`) {
-          if (newCommit) e.source.commit = newCommit
+          if (newCommit && e.mode !== 'copy') e.source.commit = newCommit
           e.source.fetchedAt = new Date().toISOString()
         }
       }

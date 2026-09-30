@@ -8,10 +8,11 @@
  * 非 TTY 撞已存在条目 → 默认跳过（覆盖必须显式 --yes）；链接形态撞名 → 一律拒绝。
  */
 import {
-  existsSync, readdirSync, mkdirSync, rmSync, copyFileSync, writeFileSync,
+  existsSync, readdirSync, mkdirSync, rmSync, copyFileSync,
   symlinkSync, cpSync, statSync, renameSync,
 } from 'node:fs'
-import { join, resolve, relative, basename, dirname, sep } from 'node:path'
+import { createHash } from 'node:crypto'
+import { join, resolve, relative, basename, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { loadConfig, expandHome, removeLinkOrCopy, lexists, DEFAULT_CONFIG_PATH } from './sync.mjs'
@@ -38,22 +39,36 @@ export function parseSource(spec, config, { exists = existsSync } = {}) {
   if (!s.includes('://') && !/^[A-Za-z]:[\\/]/.test(s) && !exists?.(s) && /^[\w.-]+\/[\w.-]+$/.test(s)) {
     s = `https://github.com/${s}`
   }
-  if (!s.includes('://') && !/^[A-Za-z]:[\\/]/.test(s)) {
+  // 非 URL 一律当本地路径（相对 / POSIX / UNC / 盘符都认），存在性在这里统一判定——
+  // 报错话术说「不是存在的本地路径」，就必须真的检查过存在性，而不是只认盘符开头
+  if (!s.includes('://') && !exists?.(s)) {
     throw new Error(`无法识别源：${spec}（不是 URL、不在配置 sources 里、也不是存在的本地路径）`)
   }
   const isLocal = exists?.(s) === true
   return { url: s, ref, isLocal }
 }
 
-/** 缓存键：同一来源稳定（remove --purge 也用它反查） */
-export function cacheKeyForSource(url, isLocal) {
+/** 缓存根目录（~/.aas/repos）。remove --purge / update 反查缓存必须用同一个函数，别再各自硬编码 */
+export function reposDirFor(home = homedir()) {
+  return join(expandHome('~', home), '.aas', 'repos')
+}
+
+/**
+ * 缓存键：同一「来源+分支」稳定（remove --purge / update 也用它反查，三处必须一致）。
+ *   本地源：绝对路径 + 短哈希 —— 不同目录的同名文件夹不能共用缓存（会装错资产）
+ *   远端源：带 ref —— 同仓不同分支共用一份缓存，add 会装错分支、update 分组间会互相覆盖
+ */
+export function cacheKeyForSource(url, isLocal, ref = null) {
   if (isLocal) {
     const abs = resolve(url)
-    return `local-${basename(abs).replace(/[^\w.-]+/g, '_')}`
+    const hash = createHash('sha256').update(abs).digest('hex').slice(0, 8)
+    return `local-${basename(abs).replace(/[^\w.-]+/g, '_')}-${hash}`
   }
   const u = new URL(url)
   const segs = u.pathname.split('/').filter(Boolean).map((x) => x.replace(/[^\w.-]+/g, '_'))
-  return [u.hostname.replace(/[^\w.-]+/g, '_'), ...segs].filter(Boolean).join('/')
+  const base = [u.hostname.replace(/[^\w.-]+/g, '_'), ...segs].filter(Boolean).join('/')
+  if (!ref || ref === 'HEAD') return base
+  return `${base}@${ref.replace(/[^\w.-]+/g, '_')}`
 }
 
 function runGit(args, cwd) {
@@ -70,8 +85,8 @@ function runGit(args, cwd) {
  * 普通目录 → 递归拷贝。已存在 → 直接复用。返回 { cacheDir, commit }。
  */
 export function cloneToCache({ url, ref, isLocal }, { home = homedir(), aasDir = null, exec = runGit } = {}) {
-  const root = aasDir ?? join(expandHome('~', home), '.aas')
-  const key = cacheKeyForSource(url, isLocal)
+  const root = aasDir ?? expandHome('~', home)
+  const key = cacheKeyForSource(url, isLocal, ref ?? null)
   const cacheDir = join(root, 'repos', key)
   if (existsSync(cacheDir)) {
     let commit = null
@@ -153,9 +168,13 @@ function linkWantNames(config, dstDir, { home, env }) {
     }
     const dst = pick('dstDir')
     const srcDir = pick('srcDir')
-    if (!dst || typeof raw.dstName !== 'string' || !raw.dstName.includes('{name}')) continue
+    if (!dst || typeof srcDir !== 'string' || typeof raw.dstName !== 'string' || !raw.dstName.includes('{name}')) continue
     if (resolve(expandHome(dst, home)) !== resolve(dstDir)) continue
-    for (const n of readdirSafe(srcDir)) want.add(raw.dstName.split('{name}').join(n))
+    // srcDir 与 dstDir 同样展开 ~ 并 resolve——否则 "~/x" 这类写法读不到目录、want 名单悄悄变空，
+    // 链接形态撞名守卫就失效了
+    for (const n of readdirSafe(resolve(expandHome(srcDir, home)))) {
+      want.add(raw.dstName.split('{name}').join(n))
+    }
   }
   return want
 }
@@ -209,8 +228,16 @@ export async function installOne({ asset, editorName, editor, config, ledger, le
     }
   }
 
-  // 3) 运行时已有同名但账本无记录 → 拒绝（可能是手装的，归 aas import 管）
-  if (!findEntry(ledger, asset.id, editorName) && lexists(runtimePath)) {
+  // 3) 运行时已有同名 → 按「路径」找账本主人（按 id 找会漏掉 --as 换 id 的场景）：
+  //    有主且是别的 id → 拒绝（同一运行时位置不能有两个账本条目盯着）；
+  //    无主 → 可能是手装的，归 aas import 管，拒绝
+  const owner = ledger.entries.find((e) => e.editor === editorName
+    && typeof e.runtimePath === 'string'
+    && resolve(expandHome(e.runtimePath, home)) === resolve(runtimePath))
+  if (owner && owner.id !== asset.id) {
+    throw new Error(`运行时位置已被账本条目 "${owner.id}" 占用（${runtimePath}）——换个账本 id 也还是同一个位置；先 aas remove ${owner.id} 再装`)
+  }
+  if (!owner && lexists(runtimePath)) {
     throw new Error(`运行时已有 "${runtimeName}" 但账本无记录（可能是手工放置）——用 aas import 收编，或先手工移除`)
   }
 
@@ -278,7 +305,6 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
 
   const src = parseSource(sourceSpec, config)
   const { cacheDir, commit } = cloneToCache(src, { home })
-  const ref = src.ref ?? 'HEAD'
   lines.push(`源：${src.url}${src.ref ? `（ref: ${src.ref}）` : ''}`)
   lines.push(`缓存：${cacheDir}${commit ? `（commit ${commit.slice(0, 12)}）` : ''}`)
 

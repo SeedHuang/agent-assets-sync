@@ -5,7 +5,7 @@
  * 这里只做三件事：检测、挑选、把 originalName 映射成 runtimeName。
  */
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { expandHome } from './sync.mjs'
 
@@ -46,8 +46,10 @@ export function pickEditor(config, { editor, home = homedir(), exists = existsSy
 
 function section(editor, kind) {
   const conf = kind === 'skill' ? editor.skills : editor.rules
-  if (!conf?.dir || !conf?.nameTemplate?.includes('{name}')) {
-    throw new Error(`编辑器配置缺 ${kind} 段（或 nameTemplate 不含 {name}）`)
+  // level 一并校验：缺了它 add 会把技能目录按 file 方式去链接，最后只报一句糊涂的「装完读不到」，
+  // 离真正原因（配置缺字段）隔了好几步。在这里大声报配置错误
+  if (!conf?.dir || !conf?.nameTemplate?.includes('{name}') || (conf?.level !== 'file' && conf?.level !== 'dir')) {
+    throw new Error(`编辑器配置缺 ${kind} 段（需 dir、nameTemplate 含 {name}、level ∈ file|dir）`)
   }
   return conf
 }
@@ -72,8 +74,14 @@ export function describeEditors(config, { home = homedir(), exists = existsSync 
   const lines = ['== 编辑器 ==']
   const entries = Object.entries(config.editors ?? {})
   if (entries.length === 0) lines.push('（配置里没有 editors）')
+  const hitNames = new Set(detectEditors(config, { home, exists }).map((h) => h.name)) // 循环外算一次，别每个编辑器都重扫一遍文件系统
   for (const [name, editor] of entries) {
-    const hit = detectEditors(config, { home, exists }).some((h) => h.name === name)
+    // normalizeConfig 只保证 editors 是对象，不保证每个条目是对象——null 条目要给出可读的提示而不是 TypeError
+    if (!editor || typeof editor !== 'object') {
+      lines.push(`？ ${name}  （配置条目无效：应为对象）`)
+      continue
+    }
+    const hit = hitNames.has(name)
     lines.push(`${hit ? '✓' : '？'} ${name}${hit ? '  （检测命中）' : '  （未检测到）'}${editor.prereq ? `  prereq: ${editor.prereq}` : ''}`)
     for (const kind of ['rules', 'skills']) {
       const c = editor[kind]
