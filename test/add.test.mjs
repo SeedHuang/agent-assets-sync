@@ -70,6 +70,25 @@ test('parseSource：URL / #ref / .git 剥离 / 短名 / 本地路径 / 无法识
   assert.throws(() => parseSource('nope-not-exist', cfg), /无法识别源/)
 })
 
+test('parseSource：GitHub 短写 owner/repo → github URL', () => {
+  const r = parseSource('seedhuang/retro-skills', { sources: {} })
+  assert.equal(r.url, 'https://github.com/seedhuang/retro-skills')
+  assert.equal(r.isLocal, false)
+})
+
+test('parseSource：短写带 .git / #ref', () => {
+  const r = parseSource('seedhuang/retro-skills.git#v1.0', { sources: {} })
+  assert.equal(r.url, 'https://github.com/seedhuang/retro-skills')
+  assert.equal(r.ref, 'v1.0')
+})
+
+test('parseSource：本地路径与配置 sources 短名不受影响', () => {
+  const local = parseSource('D:/Seed/retro-skills', { sources: {} })
+  assert.equal(local.isLocal, true)
+  const viaCfg = parseSource('rs', { sources: { rs: 'https://github.com/seedhuang/retro-skills.git' } })
+  assert.equal(viaCfg.url, 'https://github.com/seedhuang/retro-skills')
+})
+
 test('cacheKeyForSource：同一来源稳定，不同来源不同', () => {
   const a = cacheKeyForSource('https://github.com/owner/repo', false)
   const b = cacheKeyForSource('https://github.com/owner/repo', false)

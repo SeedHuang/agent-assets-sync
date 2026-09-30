@@ -23,7 +23,7 @@ import { pickEditor, resolveRuntimeName, resolveEditorDir, editorLevel } from '.
 // 源解析与缓存
 // ─────────────────────────────────────────────
 
-/** 解析 <源>：URL / sources 短名 / 本地路径（都认；支持 仓库#分支、剥 .git 后缀） */
+/** 解析 <源>：URL / GitHub 短写(owner/repo) / sources 短名 / 本地路径（支持 仓库#分支、剥 .git 后缀） */
 export function parseSource(spec, config, { exists = existsSync } = {}) {
   if (typeof spec !== 'string' || spec.trim() === '') throw new Error('源不能为空')
   let s = spec.trim()
@@ -31,15 +31,16 @@ export function parseSource(spec, config, { exists = existsSync } = {}) {
     s = config.sources[s]
   }
   let ref = null
+  const hash = s.lastIndexOf('#')
+  if (hash !== -1 && !exists?.(s)) { ref = s.slice(hash + 1); s = s.slice(0, hash) }
+  if (s.endsWith('.git') && !exists?.(s)) s = s.slice(0, -4)
+  // GitHub 短写：owner/repo（无协议、非盘符路径、本地不存在）→ https://github.com/owner/repo
+  if (!s.includes('://') && !/^[A-Za-z]:[\\/]/.test(s) && !exists?.(s) && /^[\w.-]+\/[\w.-]+$/.test(s)) {
+    s = `https://github.com/${s}`
+  }
   if (!s.includes('://') && !/^[A-Za-z]:[\\/]/.test(s)) {
     throw new Error(`无法识别源：${spec}（不是 URL、不在配置 sources 里、也不是存在的本地路径）`)
   }
-  const hash = s.lastIndexOf('#')
-  if (hash !== -1 && !exists?.(s)) {
-    ref = s.slice(hash + 1)
-    s = s.slice(0, hash)
-  }
-  if (s.endsWith('.git') && !exists?.(s)) s = s.slice(0, -4)
   const isLocal = exists?.(s) === true
   return { url: s, ref, isLocal }
 }
