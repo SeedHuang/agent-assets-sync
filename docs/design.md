@@ -4,6 +4,8 @@
 > 目的是：将来换个人接手，不用翻聊天记录就能看懂当初为什么这么决定。
 >
 > **续篇（2026-09-28 晚）**：本项目随后 CLI 化为 `aas`（8 个子命令 + 安装形态 + 安装账本），那段设计的"为什么"见 [cli-design.md](cli-design.md)。本文保留的是"独立成项目"阶段的设计记录。
+>
+> **技能依赖（2026-09-30）**：aas 新增技能依赖解析与源解析统一（`skilldependencies/` 清单 + `--islocal` + npx 回退 + CLI 版本管理）。设计唯一权威在 [retro-skills 仓库的 spec](../../retro-skills/docs/superpowers/specs/2026-09-29-aas-skill-deps-design.md)，本文只补指针、不抄写（双份真相禁令）。
 
 ## 它是什么
 
@@ -96,18 +98,21 @@
 agent-assets-sync\
 ├── README.md            给使用者看的（怎么装、命令一览、怎么改配置）
 ├── package.json         aas 命令注册（bin）+ 依赖 + localg 本地全局安装
-├── sync.config.json     配置：编辑器适配器 / 源登记 / 链接形态映射（schemaVersion 1）
+├── sync.config.json     配置：编辑器适配器 / 源登记 / 链接形态映射 / 技能目录 skills（schemaVersion 1）
 ├── src\
 │   ├── main.mjs         CLI 入口（commander 薄壳）
 │   ├── sync.mjs         链接形态同步器本体（体检 / 建链接，原先的 sync.mjs）
-│   ├── config.mjs       配置规范化（新旧格式都认）
+│   ├── config.mjs       配置规范化（新旧格式都认，含 skills 目录校验）
 │   ├── ledger.mjs       安装账本（~/.aas/installed.json：原子写/备份/校验/体检拦截）
 │   ├── editors.mjs      编辑器适配器（检测 / 挑选 / 原名→运行时名映射）
-│   ├── add.mjs          aas add（clone 缓存 / 列资产 / 安装 / 记账 / 撞名检查）
-│   ├── update.mjs       aas update（刷新 + 三态漂移修复）
+│   ├── catalog.mjs      源解析统一（短名→源上下文，--islocal / npx 回退）
+│   ├── cli-version.mjs  CLI 依赖版本检查/更新（npm，B2 防自更新）
+│   ├── deps.mjs         依赖清单读取 + BFS 解析器（防环、失败不中断批次）
+│   ├── add.mjs          aas add（clone 缓存 / 列资产 / 安装 / 记账 / 撞名检查 / 装后解析依赖）
+│   ├── update.mjs       aas update（刷新 + 三态漂移修复 + 依赖重校验）
 │   ├── remove.mjs       aas remove（摘除 + 销账 + isTTY 守卫）
 │   └── import.mjs       aas import（手建条目收编进源仓库）
-├── test\                测试（系统临时目录里造假源/假运行时，不碰真实的 ~\.trae-cn；全套 69 个）
+├── test\                测试（系统临时目录里造假源/假运行时，不碰真实的 ~\.trae-cn；计数取 `node --test "test/*.test.mjs"`）
 └── docs\
     ├── design.md        本文档：为什么独立成项目
     └── cli-design.md    CLI 化设计（经 multi-lens-review 4 轮收敛）
