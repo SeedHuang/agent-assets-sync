@@ -3,7 +3,7 @@
  * 纯逻辑：文件读写只读清单，安装/刷新/CLI 副作用全部经 ensureSkill / ensureCli 注入。
  */
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 
 const SCHEMA_VERSION = 1
 
@@ -19,6 +19,10 @@ export function readManifest(manifestPath) {
     throw new Error(`依赖清单 schemaVersion=${raw.schemaVersion} 不受支持（支持 ${SCHEMA_VERSION}）：${manifestPath}`)
   }
   if (typeof raw.skill !== 'string' || raw.skill === '') throw new Error(`依赖清单缺 skill 名：${manifestPath}`)
+  const fileName = basename(manifestPath).replace(/\.json$/, '')
+  if (raw.skill !== fileName) {
+    throw new Error(`依赖清单 skill 名 ${raw.skill} 与文件名 ${fileName} 不一致：${manifestPath}`)
+  }
   const deps = raw.dependencies ?? {}
   const skills = Array.isArray(deps.skills) ? deps.skills : []
   const cli = Array.isArray(deps.cli) ? deps.cli : []
@@ -39,8 +43,9 @@ export function readManifest(manifestPath) {
  *   - manifestDir：该依赖的 skilldependencies 目录（M1：与安装源一致）
  * ensureCli(cliEntry) → { action, name, detail }
  * 返回汇总（R6：失败记入 failures，不中断批次）。
+ * 注入的 ensureSkill / ensureCli 可能是 async，须 await 取结果。
  */
-export function resolveSkillDeps({ skill, rootManifestDir, rootSourceCtx, ensureSkill, ensureCli }) {
+export async function resolveSkillDeps({ skill, rootManifestDir, rootSourceCtx, ensureSkill, ensureCli }) {
   const visited = new Set()
   const failures = []
   const installed = [], refreshed = [], cliUpdated = [], cliInstalled = []
@@ -59,7 +64,7 @@ export function resolveSkillDeps({ skill, rootManifestDir, rootSourceCtx, ensure
     }
     for (const d of manifest.skills) {
       const dCtx = d.source ?? cur.sourceCtx // R2：省略 source 继承当前源
-      const r = ensureSkill(d.name, dCtx)
+      const r = await ensureSkill(d.name, dCtx)
       if (!r.ok) {
         failures.push({ type: 'skill', name: d.name, detail: r.error })
         continue
@@ -69,7 +74,7 @@ export function resolveSkillDeps({ skill, rootManifestDir, rootSourceCtx, ensure
       queue.push({ name: d.name, manifestDir: r.manifestDir, sourceCtx: dCtx })
     }
     for (const c of manifest.cli) {
-      const r = ensureCli(c)
+      const r = await ensureCli(c)
       if (r.action === 'updated') cliUpdated.push(r)
       else if (r.action === 'installed') cliInstalled.push(r)
       else if (r.action === 'error') failures.push({ type: 'cli', name: c.name, detail: r.detail })
