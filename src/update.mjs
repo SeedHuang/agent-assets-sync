@@ -224,7 +224,7 @@ export async function runUpdate({ name, all, opts }) {
     if (!existsSync(sd)) continue
     const ensureSkill = (name, sourceCtx) => ensureSkillDep({
       name, sourceCtx, manifestRoot: manifestDir, editorName: e.editor, editor: config.editors?.[e.editor],
-      config, ledger, ledgerPath, home, opts: { editor: e.editor, isTTY: false },
+      config, ledger, ledgerPath, home, opts: { editor: e.editor, isTTY: false, copy: e.mode === 'copy' },
     })
     const r = await resolveSkillDeps({
       skill: e.id, rootManifestDir: sd, rootSourceCtx: 'inherit',
