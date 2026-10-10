@@ -81,7 +81,7 @@ export function isDirectRun(entry, moduleUrl) {
 //   level    "file"（对文件建符号链接）| "dir"（对目录建 junction）
 //   env      可选：把「环境变量名」绑到 srcDir / dstDir 上，
 //            用于「换机器 / 仓库搬家」时不必改配置，例如
-//            { "srcDir": "MY_RULES_SRC", "dstDir": "TRAE_RULES_DST" }
+//            { "srcDir": "RETRO_SKILLS_RULES", "dstDir": "TRAE_RULES_DST" }
 // ─────────────────────────────────────────────────────────────
 
 /** 展开开头的 ~（兼容 ~/ 与 ~\） */
@@ -413,7 +413,7 @@ const USAGE = `用法（在本项目根下跑）：
   node --test test/sync.test.mjs       跑脚本自己的测试（临时目录里，不碰真实运行时）
 
 配置：源 / 目标 / 命名规则见 sync.config.json；其中 env 字段可把环境变量绑到路径上
-      （如 MY_RULES_SRC / RETRO_SKILLS_DIR / TRAE_RULES_DST / TRAE_SKILLS_DST），换机器时不必改配置`
+      （如 RETRO_SKILLS_RULES / RETRO_SKILLS_DIR / TRAE_RULES_DST / TRAE_SKILLS_DST），换机器时不必改配置`
 
 function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv)

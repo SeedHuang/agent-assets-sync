@@ -70,9 +70,9 @@ aas editors                 列出检测到的编辑器与各自目录、前置�
       "skills": { "dir": "~/.trae-cn/skills",     "nameTemplate": "{name}",       "level": "dir" }
     }
   },
-  "sources": { "myrules": "https://github.com/SeedHuang/my-rules" },   // 源登记（aas add 的短名）
+  "sources": {},                                     // 源登记（aas add 的短名）
   "linkTargets": [                   // 链接形态：源 → 运行时（旧格式 targets 也兼容）
-    { "label": "全局规则", "srcDir": "D:/Seed/my-rules/rules", "dstDir": "~/.trae-cn/user_rules",
+    { "label": "全局规则", "srcDir": "D:/Seed/retro-skills/rules", "dstDir": "~/.trae-cn/user_rules",
       "dstName": "rule-{name}", "level": "file", "editor": "trae-cn" }
   ]
 }
@@ -82,7 +82,7 @@ aas editors                 列出检测到的编辑器与各自目录、前置�
 
 | 变量 | 覆盖哪条 |
 |---|---|
-| `MY_RULES_SRC` / `RETRO_SKILLS_DIR` | 两个链接形态的源目录 |
+| `RETRO_SKILLS_RULES` / `RETRO_SKILLS_DIR` | 两个链接形态的源目录 |
 | `TRAE_RULES_DST` / `TRAE_SKILLS_DST` | 两个链接形态的运行时目录 |
 
 ## 换成别的编辑器
@@ -98,7 +98,7 @@ aas editors                 列出检测到的编辑器与各自目录、前置�
 
 ## 关系
 
-- `D:\Seed\my-rules` —— 全局规则的源（链接形态）
+- `D:\Seed\retro-skills\rules` —— 全局规则的源（链接形态，与技能同仓库）
 - `D:\Seed\retro-skills` —— 技能套件的源（体系全貌见其 `docs\architecture.md`）
 - `~\.aas\` —— 安装账本与缓存（installed.json / repos / temp）
 

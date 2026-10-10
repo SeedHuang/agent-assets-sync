@@ -18,7 +18,7 @@
 
 | 形态 | 谁用 | 怎么生效 | 账记在哪 |
 |---|---|---|---|
-| **链接形态**（现状，保留） | 你自己的源仓库（my-rules、retro-skills） | 源文件 → 符号链接/junction → 运行时；改源即生效 | `sync.config.json`（映射表） |
+| **链接形态**（现状，保留） | 你自己的源仓库（retro-skills：rules/ 与 skills/） | 源文件 → 符号链接/junction → 运行时；改源即生效 | `sync.config.json`（映射表） |
 | **安装形态**（本次新增） | 别人的远端仓库（git URL / 登记短名） | clone 进本地缓存 → 从缓存装进编辑器目录 | `~/.aas/installed.json`（账本，§4） |
 
 **为什么安装形态不直接复制完事，还要缓存**：两个理由。
@@ -45,9 +45,7 @@
       "skills": { "dir": "~/.trae-cn/skills",     "nameTemplate": "{name}",       "level": "dir" }
     }
   },
-  "sources": {                            // 源登记：短名 → 仓库地址（aas add 的第一个参数）
-    "myrules": "https://github.com/SeedHuang/my-rules"
-  },
+  "sources": {},                            // 源登记：短名 → 仓库地址（aas add 的第一个参数；当前无登记）
   "linkTargets": [ /* 现有两个 target 原样保留，各加一个 "editor": "trae-cn" 字段 */ ]
 }
 ```

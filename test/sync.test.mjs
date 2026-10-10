@@ -299,11 +299,11 @@ test('配置：env 指定的环境变量覆盖路径；空值不算覆盖', () =
   const cfg = {
     targets: [{
       label: 'r', srcDir: 'C:/default', dstDir: 'C:/d', dstName: '{name}', level: 'file',
-      env: { srcDir: 'MY_RULES_SRC' },
+      env: { srcDir: 'RETRO_SKILLS_RULES' },
     }],
   }
-  assert.equal(buildTargets(cfg, { env: { MY_RULES_SRC: 'C:/override' } })[0].srcDir, resolve('C:/override'))
-  assert.equal(buildTargets(cfg, { env: { MY_RULES_SRC: '   ' } })[0].srcDir, resolve('C:/default'), '空白不算覆盖')
+  assert.equal(buildTargets(cfg, { env: { RETRO_SKILLS_RULES: 'C:/override' } })[0].srcDir, resolve('C:/override'))
+  assert.equal(buildTargets(cfg, { env: { RETRO_SKILLS_RULES: '   ' } })[0].srcDir, resolve('C:/default'), '空白不算覆盖')
   assert.equal(buildTargets(cfg, { env: {} })[0].srcDir, resolve('C:/default'), '未设置时用配置里的值')
 })
 

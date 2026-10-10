@@ -12,12 +12,12 @@
   "linkTargets": [
     {
       "label": "全局规则",
-      "srcDir": "D:/Seed/my-rules/rules",
+      "srcDir": "D:/Seed/retro-skills/rules",
       "dstDir": "~/.trae-cn/user_rules",
       "dstName": "rule-{name}",
       "level": "file",
       "editor": "trae-cn",
-      "env": { "srcDir": "MY_RULES_SRC", "dstDir": "TRAE_RULES_DST" }
+      "env": { "srcDir": "RETRO_SKILLS_RULES", "dstDir": "TRAE_RULES_DST" }
     },
     {
       "label": "技能",
