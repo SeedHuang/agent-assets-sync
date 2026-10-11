@@ -40,6 +40,9 @@ aas remove <名> [--purge]   摘除已装的资产并销账
 aas import <名>             把编辑器里手建的条目收编进你的源仓库
 aas list                    列出配置的源与各源条目
 aas editors                 列出检测到的编辑器与各自目录、前置条件
+aas config get              查看用户配置（~/.aas/config.json；交互下可直接选择修改）
+aas config set <键> [值]    设置用户配置（repoRoot 弹目录选择器 / editor 弹单选列表）
+aas config init             初始化向导：按 repoRoot → editor 顺序设置
 ```
 
 - `<源>` = git URL（支持 `仓库#分支`、剥 `.git`）、配置 `sources` 里登记的短名、或本地路径
@@ -55,9 +58,26 @@ aas editors                 列出检测到的编辑器与各自目录、前置�
 3. 装进检测到的编辑器（认不出会让你选；默认缓存+链接，`--copy` 可强制复制）
 4. 在账本 `~\.aas\installed.json` 记下**原名 ↔ 运行时名**的映射——重复判断、`aas update`、`aas remove` 全靠它
 
-## 配置
+## 配置：两层
 
-全部写在 `sync.config.json`。**换编辑器 / 换机器只改这里，不碰代码。**
+配置分两层，**换机器 / 换编辑器都不碰代码**：
+
+| 层 | 位置 | 装什么 |
+|---|---|---|
+| 骨架 | `sync.config.json`（随包发布） | 编辑器预设、sources、技能目录的 source、链接形态映射结构——**零个人路径** |
+| 用户配置 | `~/.aas/config.json` | 机器相关的值：`repoRoot`（源仓库根）+ `editor`（编辑器预设，可选） |
+
+**`repoRoot` 是唯一必须人填的值**：定了它，链接形态的源目录（`rules\`、`skills\`）和技能目录的 `localPath` 都自动推导。首次使用跑：
+
+```
+aas config init
+```
+
+或用 `aas config set repoRoot <路径>`——交互下会弹文件夹选择器，选完自动回填并校验目录里有没有 `rules\`/`skills\`。
+
+> 配置坏了（手改 JSON 语法错 / 形状非法）也能修：`aas config set <键> <值>` 会宽容读入并覆盖坏值，旧文件滚动成 `config.json.bak` 留底，不会卡死其它命令。
+
+骨架形状：
 
 ```jsonc
 {
@@ -71,14 +91,24 @@ aas editors                 列出检测到的编辑器与各自目录、前置�
     }
   },
   "sources": {},                                     // 源登记（aas add 的短名）
-  "linkTargets": [                   // 链接形态：源 → 运行时（旧格式 targets 也兼容）
-    { "label": "全局规则", "srcDir": "D:/Seed/retro-skills/rules", "dstDir": "~/.trae-cn/user_rules",
+  "linkTargets": [                   // 链接形态：相对 srcDir = <repoRoot>/<srcDir>
+    { "label": "全局规则", "srcDir": "rules", "dstDir": "~/.trae-cn/user_rules",
       "dstName": "rule-{name}", "level": "file", "editor": "trae-cn" }
   ]
 }
 ```
 
-### 环境变量（可选，覆盖配置里的路径）
+用户配置形状（`aas config get` 查看 / `aas config set` 改）：
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "repoRoot": "D:/Seed/retro-skills",   // 源仓库根（换机只改这一个值）
+  "editor": "trae-cn"                   // 可选；缺省自动检测
+}
+```
+
+### 环境变量（可选，最高优先级，覆盖路径）
 
 | 变量 | 覆盖哪条 |
 |---|---|
@@ -100,6 +130,6 @@ aas editors                 列出检测到的编辑器与各自目录、前置�
 
 - `D:\Seed\retro-skills\rules` —— 全局规则的源（链接形态，与技能同仓库）
 - `D:\Seed\retro-skills` —— 技能套件的源（体系全貌见其 `docs\architecture.md`）
-- `~\.aas\` —— 安装账本与缓存（installed.json / repos / temp）
+- `~\.aas\` —— 用户配置 + 安装账本与缓存（config.json / installed.json / repos / temp）
 
 依赖：Node 内置之外只用 commander + @inquirer/prompts（子命令与交互问询）+ 系统 git。
