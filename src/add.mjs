@@ -15,8 +15,9 @@ import { createHash } from 'node:crypto'
 import { join, resolve, relative, basename, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
-import { loadConfig, expandHome, removeLinkOrCopy, lexists, DEFAULT_CONFIG_PATH } from './sync.mjs'
-import { normalizeConfig } from './config.mjs'
+import { expandHome, removeLinkOrCopy, lexists } from './sync.mjs'
+import { requireAbsoluteSrcDir, targetSrcFields } from './config.mjs'
+import { loadEffectiveConfig } from './user-config.mjs'
 import { readLedger, writeLedger, findEntry, defaultLedgerPath } from './ledger.mjs'
 import { pickEditor, resolveRuntimeName, resolveEditorDir, editorLevel } from './editors.mjs'
 import { resolveSourceForName } from './catalog.mjs'
@@ -222,21 +223,26 @@ export function listAssets(root) {
 // 安装
 // ─────────────────────────────────────────────
 
+/**
+ * 该 target 是否参与「落点为本运行时目录」的链接形态 want 名单。
+ * 返回参与时的 {dst, srcDir}（供循环直接用），不参与返回 null —— 守卫 filter 与 want 循环共用这一份判定。
+ */
+function matchesDst(raw, dstDir, { home, env }) {
+  const f = targetSrcFields(raw, env)
+  if (!f) return null
+  return resolve(expandHome(f.dst, home)) === resolve(dstDir) ? f : null
+}
+
 function linkWantNames(config, dstDir, { home, env }) {
-  // 链接形态的"想要名单"：所有落点与该运行时目录相同的 target 的目标名
+  // 链接形态的"想要名单"：所有落点与该运行时目录相同的 target 的目标名。
+  // 守卫只校验真正会读 srcDir 的 target（matchesDst 判定），并传原始数组保持报错索引正确——
+  // 否则与本目录无关的 target（如装技能时规则 target 的 srcDir 相对）会把整个 add 误杀
+  requireAbsoluteSrcDir(config.targets, { home, env, filter: (raw) => matchesDst(raw, dstDir, { home, env }) })
   const want = new Set()
   for (const raw of config.targets ?? []) {
-    const pick = (key) => {
-      const name = raw.env?.[key]
-      return typeof name === 'string' && typeof env?.[name] === 'string' && env[name].trim() !== '' ? env[name] : raw[key]
-    }
-    const dst = pick('dstDir')
-    const srcDir = pick('srcDir')
-    if (!dst || typeof srcDir !== 'string' || typeof raw.dstName !== 'string' || !raw.dstName.includes('{name}')) continue
-    if (resolve(expandHome(dst, home)) !== resolve(dstDir)) continue
-    // srcDir 与 dstDir 同样展开 ~ 并 resolve——否则 "~/x" 这类写法读不到目录、want 名单悄悄变空，
-    // 链接形态撞名守卫就失效了
-    for (const n of readdirSafe(resolve(expandHome(srcDir, home)))) {
+    const f = matchesDst(raw, dstDir, { home, env })
+    if (!f) continue
+    for (const n of readdirSafe(resolve(expandHome(f.srcDir, home)))) {
       want.add(raw.dstName.split('{name}').join(n))
     }
   }
@@ -359,8 +365,8 @@ export async function runAdd({ sourceSpec, names = [], opts }) {
   const isTTY = opts.isTTY ?? false
   const lines = []
 
-  const config = normalizeConfig(loadConfig(opts.configPath ?? DEFAULT_CONFIG_PATH))
-  const picked = pickEditor(config, { editor: opts.editor, home })
+  const config = loadEffectiveConfig(opts.configPath, { home })
+  const picked = pickEditor(config, { editor: opts.editor, defaultEditor: config.editor, home })
   if (picked.needChoice) {
     if (!isTTY) throw new Error(`${picked.message}（非交互环境）`)
     throw new Error(`${picked.message}——交互挑选见阶段 3 后续版本，当前请显式 --editor`)

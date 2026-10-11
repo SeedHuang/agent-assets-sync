@@ -18,9 +18,9 @@ import { join, resolve, dirname } from 'node:path'
 import { homedir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import {
-  loadConfig, expandHome, removeLinkOrCopy, lexists, linkTarget, DEFAULT_CONFIG_PATH,
+  expandHome, removeLinkOrCopy, lexists, linkTarget,
 } from './sync.mjs'
-import { normalizeConfig } from './config.mjs'
+import { loadEffectiveConfig } from './user-config.mjs'
 import { readLedger, writeLedger, defaultLedgerPath } from './ledger.mjs'
 import { cacheKeyForSource, reposDirFor } from './add.mjs'
 import { resolveSkillDeps } from './deps.mjs'
@@ -134,7 +134,7 @@ export async function runUpdate({ name, all, opts }) {
   // update 是非破坏性的原位刷新，不需要确认（旧版本仍在 git 历史里），因此不用 isTTY
   const lines = []
 
-  const config = normalizeConfig(loadConfig(opts.configPath ?? DEFAULT_CONFIG_PATH))
+  const config = loadEffectiveConfig(opts.configPath, { home })
   const ledgerPath = defaultLedgerPath(home)
   const ledger = readLedger(ledgerPath)
 
@@ -229,7 +229,7 @@ export async function runUpdate({ name, all, opts }) {
     if (!existsSync(sd)) continue
     const ensureSkill = (name, sourceCtx) => ensureSkillDep({
       name, sourceCtx, manifestRoot: manifestDir, editorName: e.editor, editor: config.editors?.[e.editor],
-      config, ledger, ledgerPath, home, opts: { editor: e.editor, isTTY: false, copy: e.mode === 'copy' },
+      config, ledger, ledgerPath, home, opts: { editor: e.editor, isTTY: false, copy: e.mode === 'copy', env: opts.env },
       // C1：inherit 依赖继承父条目的真实来源——绝不让 repo=null 进账本，否则 update --all / remove --purge 会崩
       parentSource: { repo: e.source.repo, ref: e.source.ref, commit: e.source.commit },
     })

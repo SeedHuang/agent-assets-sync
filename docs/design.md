@@ -92,17 +92,34 @@
 
 > 数字只在**本表这一处**留号码，并附上取数命令 —— 写在多处必然漂移。
 
+## 配置分层（2026-10-10）
+
+换机器 / 换编辑器的痛点：路径写死在 `sync.config.json` 里（仓库根 ×10 处重复），换机器要改十几处；换编辑器要重写适配 JSON。
+
+**拆两层**：
+
+| 层 | 位置 | 装什么 |
+|---|---|---|
+| 骨架 | `sync.config.json`（随包发布） | 编辑器预设 / sources / 技能目录 source / 链接形态结构——**零个人路径** |
+| 用户配置 | `~/.aas/config.json` | `repoRoot`（源仓库根）+ `editor`（编辑器预设，可选）——**唯一机器相关的值** |
+
+推导规则（`resolveConfig` = 合并 → 推导 → 归一）：`repoRoot` 定了，链接形态的相对 `srcDir`（`rules` / `skills`）解析为 `<repoRoot>/<srcDir>`，技能目录缺省 `localPath = repoRoot`。优先级（字段级）：**环境变量 > 用户配置 > 骨架**。旧格式配置（绝对路径）照常工作。
+
+交互入口：`aas config get`（查看 / 就地改）、`aas config set <键> [值]`（repoRoot 弹文件夹选择器、editor 弹单选列表）、`aas config init`（按 repoRoot → editor 顺序向导）。文件夹选择器借 PowerShell 的 FolderBrowserDialog（仅 Windows + 交互终端，其余退回手输路径）。
+
 ## 文件地图（CLI 化后的现状；"零第三方依赖"已按用户拍板放开——依赖清单见 README）
 
 ```
 agent-assets-sync\
 ├── README.md            给使用者看的（怎么装、命令一览、怎么改配置）
 ├── package.json         aas 命令注册（bin）+ 依赖 + localg 本地全局安装
-├── sync.config.json     配置：编辑器适配器 / 源登记 / 链接形态映射 / 技能目录 skills（schemaVersion 1）
+├── sync.config.json     配置骨架：编辑器预设 / 源登记 / 链接形态映射 / 技能目录 source（零个人路径；机器相关值在 ~/.aas/config.json）
 ├── src\
-│   ├── main.mjs         CLI 入口（commander 薄壳）
+│   ├── main.mjs         CLI 入口（commander 薄壳；含 aas config 子命令）
 │   ├── sync.mjs         链接形态同步器本体（体检 / 建链接，原先的 sync.mjs）
-│   ├── config.mjs       配置规范化（新旧格式都认，含 skills 目录校验）
+│   ├── config.mjs       配置规范化 + 分层合并 + repoRoot 推导（resolveConfig / mergeConfigs / derivePaths）
+│   ├── user-config.mjs  用户配置 ~/.aas/config.json 读写 + loadEffectiveConfig 统一入口
+│   ├── config-cmd.mjs   aas config get/set/init（文件夹选择器 / 单选列表 / 校验）
 │   ├── ledger.mjs       安装账本（~/.aas/installed.json：原子写/备份/校验/体检拦截）
 │   ├── editors.mjs      编辑器适配器（检测 / 挑选 / 原名→运行时名映射）
 │   ├── catalog.mjs      源解析统一（短名→源上下文，--islocal / npx 回退）

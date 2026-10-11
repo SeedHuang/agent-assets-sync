@@ -62,3 +62,19 @@ test('resolveSourceForName：目录未命中默认 → npx 回退', () => {
   assert.equal(r.context.kind, 'npx')
   assert.equal(r.context.name, 'nope')
 })
+
+// 相对 localPath（缺 repoRoot）的两条：守卫不能把 --islocal 的缓存回退挡掉
+const relCfg = { sources: {}, skills: { rel: { source: 'https://github.com/x/y.git', localPath: 'my/skills' } } }
+
+test('resolveSourceForName：--islocal + 相对 localPath + 有缓存 → 仍走缓存（守卫不挡回退）', () => {
+  const cachePath = join(homedir(), '.aas', 'repos', 'github.com/x/y')
+  const r = resolveSourceForName('rel', relCfg, { isLocal: true, exists: (p) => p === cachePath })
+  assert.equal(r.ok, true)
+  assert.equal(r.context.path, cachePath)
+})
+
+test('resolveSourceForName：--islocal + 相对 localPath + 无缓存 → 报错指路 config init', () => {
+  const r = resolveSourceForName('rel', relCfg, { isLocal: true, exists: () => false })
+  assert.equal(r.ok, false)
+  assert.match(r.reason, /相对路径 my\/skills.*repoRoot/s)
+})

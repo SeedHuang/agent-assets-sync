@@ -274,22 +274,23 @@ test('parseArgs：--config 缺值 / 后跟另一个选项 → 报错，不静默
 // ─────────────────────────────────────────────
 test('配置：dstName 模板把 {name} 换成源文件名；level 决定 dirLevel', () => {
   const ts = buildTargets({
-    targets: [{ label: 'r', srcDir: 'C:/s', dstDir: 'C:/d', dstName: 'rule-{name}', level: 'file' }],
+    targets: [{ label: 'r', srcDir: resolve('C:/s'), dstDir: resolve('C:/d'), dstName: 'rule-{name}', level: 'file' }],
   })
   assert.equal(ts[0].dstName('a.md'), 'rule-a.md')
   assert.equal(ts[0].dirLevel, false)
 
   const ts2 = buildTargets({
-    targets: [{ label: 'k', srcDir: 'C:/s', dstDir: 'C:/d', dstName: '{name}', level: 'dir' }],
+    targets: [{ label: 'k', srcDir: resolve('C:/s'), dstDir: resolve('C:/d'), dstName: '{name}', level: 'dir' }],
   })
   assert.equal(ts2[0].dstName('skill-a'), 'skill-a')
   assert.equal(ts2[0].dirLevel, true)
 })
 
 test('配置：开头的 ~ 展开到 home', () => {
+  const home = resolve('C:/home/x')
   const ts = buildTargets(
     { targets: [{ label: 'r', srcDir: '~/src', dstDir: '~/.trae-cn/user_rules', dstName: '{name}', level: 'file' }] },
-    { home: 'C:/home/x' },
+    { home },
   )
   assert.equal(ts[0].srcDir, resolve('C:/home/x/src'))
   assert.equal(ts[0].dstDir, resolve('C:/home/x/.trae-cn/user_rules'))
@@ -298,11 +299,11 @@ test('配置：开头的 ~ 展开到 home', () => {
 test('配置：env 指定的环境变量覆盖路径；空值不算覆盖', () => {
   const cfg = {
     targets: [{
-      label: 'r', srcDir: 'C:/default', dstDir: 'C:/d', dstName: '{name}', level: 'file',
+      label: 'r', srcDir: resolve('C:/default'), dstDir: resolve('C:/d'), dstName: '{name}', level: 'file',
       env: { srcDir: 'RETRO_SKILLS_RULES' },
     }],
   }
-  assert.equal(buildTargets(cfg, { env: { RETRO_SKILLS_RULES: 'C:/override' } })[0].srcDir, resolve('C:/override'))
+  assert.equal(buildTargets(cfg, { env: { RETRO_SKILLS_RULES: resolve('C:/override') } })[0].srcDir, resolve('C:/override'))
   assert.equal(buildTargets(cfg, { env: { RETRO_SKILLS_RULES: '   ' } })[0].srcDir, resolve('C:/default'), '空白不算覆盖')
   assert.equal(buildTargets(cfg, { env: {} })[0].srcDir, resolve('C:/default'), '未设置时用配置里的值')
 })
@@ -311,16 +312,23 @@ test('配置：形状不对就报错（缺 targets / 缺 srcDir / dstName 无 {n
   assert.throws(() => buildTargets({}), /targets/)
   assert.throws(() => buildTargets({ targets: [] }), /targets/)
   assert.throws(
-    () => buildTargets({ targets: [{ label: 'r', dstDir: 'C:/d', dstName: '{name}', level: 'file' }] }),
+    () => buildTargets({ targets: [{ label: 'r', dstDir: resolve('C:/d'), dstName: '{name}', level: 'file' }] }),
     /srcDir/,
   )
   assert.throws(
-    () => buildTargets({ targets: [{ label: 'r', srcDir: 'C:/s', dstDir: 'C:/d', dstName: 'fixed.md', level: 'file' }] }),
+    () => buildTargets({ targets: [{ label: 'r', srcDir: resolve('C:/s'), dstDir: resolve('C:/d'), dstName: 'fixed.md', level: 'file' }] }),
     /\{name\}/,
   )
   assert.throws(
-    () => buildTargets({ targets: [{ label: 'r', srcDir: 'C:/s', dstDir: 'C:/d', dstName: '{name}', level: 'dunno' }] }),
+    () => buildTargets({ targets: [{ label: 'r', srcDir: resolve('C:/s'), dstDir: resolve('C:/d'), dstName: '{name}', level: 'dunno' }] }),
     /level/,
+  )
+})
+
+test('配置：相对 srcDir 且无 repoRoot → 报错指路 config init（别 resolve 到 cwd 变玄学报错）', () => {
+  assert.throws(
+    () => buildTargets({ targets: [{ label: 'r', srcDir: 'rules', dstDir: 'C:/d', dstName: '{name}', level: 'file' }] }),
+    /相对路径.*repoRoot/,
   )
 })
 

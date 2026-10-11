@@ -104,3 +104,44 @@ test('import：无匹配 → 报错并列出未托管条目（防呆）', async 
     /没有匹配 "zzz"[\s\S]*rule-aaa\.md[\s\S]*rule-bbb\.md/,
   )
 })
+
+test('import：目标运行时目录存在的相对 srcDir 缺 repoRoot → 报错指路（守卫与循环同判定）', async () => {
+  const home = tmp('home-')
+  try {
+    const runtime = join(home, 'rules')
+    mkdirSync(runtime, { recursive: true })
+    const config = {
+      schemaVersion: 1, editors: {}, sources: {},
+      linkTargets: [{ label: 'r', srcDir: 'rules', dstDir: runtime, dstName: 'rule-{name}', level: 'file' }],
+    }
+    const cfgPath = join(home, 'cfg.json')
+    writeFileSync(cfgPath, JSON.stringify(config), 'utf8')
+    await assert.rejects(
+      () => runImport({ name: 'rule-x.md', opts: { configPath: cfgPath, home, env: {} } }),
+      /相对路径.*repoRoot/,
+    )
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})
+
+test('import：相对 srcDir 的 target 目标目录不存在 → 守卫不误杀（无关 target）', async () => {
+  const home = tmp('home-')
+  try {
+    const existing = join(home, 'existing')
+    mkdirSync(existing, { recursive: true })
+    const config = {
+      schemaVersion: 1, editors: {}, sources: {},
+      linkTargets: [
+        { label: 'rel-missing', srcDir: 'rules', dstDir: join(home, 'nope'), dstName: 'rule-{name}', level: 'file' },
+        { label: 'ok', srcDir: existing, dstDir: existing, dstName: 'rule-{name}', level: 'file' },
+      ],
+    }
+    const cfgPath = join(home, 'cfg.json')
+    writeFileSync(cfgPath, JSON.stringify(config), 'utf8')
+    // 目标目录不存在的相对 srcDir target 被 matchesImportTarget 排除 → 不报 repoRoot；
+    // 循环里没有可收编条目 → 报「没有匹配」（而非 repoRoot 指路）
+    await assert.rejects(
+      () => runImport({ name: 'rule-x.md', opts: { configPath: cfgPath, home, env: {} } }),
+      /没有匹配/,
+    )
+  } finally { rmSync(home, { recursive: true, force: true }) }
+})

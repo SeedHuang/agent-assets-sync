@@ -12,7 +12,7 @@
   "linkTargets": [
     {
       "label": "全局规则",
-      "srcDir": "D:/Seed/retro-skills/rules",
+      "srcDir": "rules",
       "dstDir": "~/.trae-cn/user_rules",
       "dstName": "rule-{name}",
       "level": "file",
@@ -21,7 +21,7 @@
     },
     {
       "label": "技能",
-      "srcDir": "D:/Seed/retro-skills/skills",
+      "srcDir": "skills",
       "dstDir": "~/.trae-cn/skills",
       "dstName": "{name}",
       "level": "dir",
@@ -30,13 +30,13 @@
     }
   ],
   "skills": {
-    "multi-lens-review":     { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
-    "prd-to-specs":          { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
-    "retro-collect":         { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
-    "retro-analyze":         { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
-    "retro-institutionalize":{ "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
-    "evolving-skills":       { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
-    "using-retrospective":   { "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" },
-    "managing-lessons-store":{ "source": "https://github.com/seedhuang/retro-skills.git", "localPath": "D:/Seed/retro-skills" }
+    "multi-lens-review":     { "source": "https://github.com/seedhuang/retro-skills.git" },
+    "prd-to-specs":          { "source": "https://github.com/seedhuang/retro-skills.git" },
+    "retro-collect":         { "source": "https://github.com/seedhuang/retro-skills.git" },
+    "retro-analyze":         { "source": "https://github.com/seedhuang/retro-skills.git" },
+    "retro-institutionalize":{ "source": "https://github.com/seedhuang/retro-skills.git" },
+    "evolving-skills":       { "source": "https://github.com/seedhuang/retro-skills.git" },
+    "using-retrospective":   { "source": "https://github.com/seedhuang/retro-skills.git" },
+    "managing-lessons-store":{ "source": "https://github.com/seedhuang/retro-skills.git" }
   }
 }

@@ -49,6 +49,19 @@ test('pickEditor：显式存在 → 返回；显式未知 → 报错带可选值
   assert.match(r2.message, /命中多个/)
 })
 
+test('pickEditor：defaultEditor 在显式 editor 之后、自动检测之前', () => {
+  const cfg = { editors: { ed1: ED('C:/d1', 'C:/d1'), ed2: ED('C:/d2', 'C:/d2') } }
+  // 显式 editor（命令行 --editor）优先于 defaultEditor（用户配置）
+  assert.equal(pickEditor(cfg, { editor: 'ed2', defaultEditor: 'ed1', exists: () => false }).name, 'ed2')
+  // 无显式 → 用 defaultEditor；即使自动检测能命中，defaultEditor 也优先
+  assert.equal(pickEditor(cfg, { defaultEditor: 'ed1', exists: () => false }).name, 'ed1')
+  assert.equal(pickEditor(cfg, { defaultEditor: 'ed1', exists: () => true }).name, 'ed1')
+  // 无显式无 default → 走自动检测
+  assert.equal(pickEditor(cfg, { exists: () => true }).needChoice, true)
+  // defaultEditor 未知 → 报错带可选值
+  assert.throws(() => pickEditor(cfg, { defaultEditor: 'nope', exists: () => false }), /可选：ed1、ed2/)
+})
+
 test('resolveRuntimeName：规则模板 / 技能模板 / 缺段报错', () => {
   const ed = ED('C:/d1', 'C:/d2')
   assert.equal(resolveRuntimeName(ed, 'rule', 'code-style.md'), 'rule-code-style.md')

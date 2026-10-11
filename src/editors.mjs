@@ -21,16 +21,21 @@ export function detectEditors(config, { home = homedir(), exists = existsSync } 
 
 /**
  * 挑编辑器（纯函数，不弹交互）：
- *   显式给了名字 → 必须存在，否则报错并列出可选值
+ *   显式给了名字（--editor，或用户配置 ~/.aas/config.json 的 editor）→ 必须存在，否则报错并列出可选值
  *   没给 → 恰好命中一个就用它；零个或多个 → 返回 needChoice（调用方决定交互还是报错）
+ *   优先级：editor（命令行）> defaultEditor（用户配置）> 自动检测
  */
-export function pickEditor(config, { editor, home = homedir(), exists = existsSync } = {}) {
+export function pickEditor(config, { editor, defaultEditor = null, home = homedir(), exists = existsSync } = {}) {
   const names = Object.keys(config.editors ?? {})
-  if (editor) {
-    if (!config.editors?.[editor]) {
-      throw new Error(`编辑器 "${editor}" 不在配置里；可选：${names.join('、') || '（配置里没有任何编辑器）'}`)
+  const explicit = editor ?? defaultEditor
+  if (explicit) {
+    if (!config.editors?.[explicit]) {
+      // 点名来源（命令行 vs 用户配置）并给修复入口——否则用户不知道这个名字从哪来、该去哪改
+      const from = editor ? '--editor' : '~/.aas/config.json 的 editor'
+      const fix = editor ? '--editor <名>' : 'aas config set editor <名>'
+      throw new Error(`编辑器 "${explicit}"（来自 ${from}）不在配置里；可选：${names.join('、') || '（配置里没有任何编辑器）'}\n  下一步：${fix}`)
     }
-    return { name: editor, editor: config.editors[editor] }
+    return { name: explicit, editor: config.editors[explicit] }
   }
   const hits = detectEditors(config, { home, exists })
   if (hits.length === 1) return { name: hits[0].name, editor: hits[0].editor }

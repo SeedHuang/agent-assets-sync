@@ -13,11 +13,22 @@
 import { existsSync, readdirSync, lstatSync, copyFileSync, cpSync, mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import { loadConfig, expandHome, linkTarget, DEFAULT_CONFIG_PATH } from './sync.mjs'
-import { normalizeConfig } from './config.mjs'
+import { expandHome, linkTarget } from './sync.mjs'
+import { requireAbsoluteSrcDir, targetSrcFields } from './config.mjs'
+import { loadEffectiveConfig } from './user-config.mjs'
 import { readLedger, runtimePathsIndex, defaultLedgerPath } from './ledger.mjs'
 
 const stripExt = (f) => f.replace(/\.md$/i, '')
+
+/**
+ * 该 target 是否被 import 循环真正消费：返回消费时的 {dst, srcDir}，不消费返回 null。
+ * 守卫 filter 与 import 循环共用这一份判定（既防漂移，也让循环不用二次解引用）。
+ */
+function matchesImportTarget(raw, { home, env }) {
+  const f = targetSrcFields(raw, env)
+  if (!f) return null
+  return existsSync(resolve(expandHome(f.dst, home))) ? f : null
+}
 
 /** nameTemplate 逆映射：'rule-{name}' + 'rule-foo.md' → 'foo.md'；不匹配 → null */
 export function inverseTemplate(template, file) {
@@ -30,11 +41,6 @@ export function inverseTemplate(template, file) {
   return middle === '' ? null : middle
 }
 
-function pickEnv(raw, key, env) {
-  const name = raw.env?.[key]
-  return typeof name === 'string' && typeof env?.[name] === 'string' && env[name].trim() !== '' ? env[name] : raw[key]
-}
-
 /**
  * aas import 主流程。返回打印行数组。
  * opts: { configPath, home, env }
@@ -44,7 +50,7 @@ export async function runImport({ name, opts }) {
   if (typeof name !== 'string' || name.trim() === '') throw new Error('要给运行时条目名（如 rule-foo.md 或 foo）')
   const input = name.trim()
 
-  const config = normalizeConfig(loadConfig(opts.configPath ?? DEFAULT_CONFIG_PATH))
+  const config = loadEffectiveConfig(opts.configPath, { home })
   const ledger = readLedger(defaultLedgerPath(home))
   const ledgerPaths = runtimePathsIndex(ledger, { home })
 
@@ -52,13 +58,15 @@ export async function runImport({ name, opts }) {
   const unmanaged = [] // 运行时里"无主"的条目（报错时提示用户可选什么）
   const managedHits = [] // 名字对得上、但由别的机制管理的条目（报错时点名）
 
+  // 骨架相对 srcDir 缺 repoRoot 且无环境变量时先报错——否则 resolve 到 cwd、把条目写进 <cwd>/rules。
+  // 只校验 import 循环真正会读 srcDir 的 target（matchesImportTarget 与循环同一判定），无关 target 不误杀
+  requireAbsoluteSrcDir(config.targets, { home, env: opts.env, filter: (raw) => matchesImportTarget(raw, { home, env: opts.env }) })
+
   for (const raw of config.targets ?? []) {
-    const dst = pickEnv(raw, 'dstDir', opts.env)
-    const srcDir = pickEnv(raw, 'srcDir', opts.env)
-    if (!dst || !srcDir || typeof raw.dstName !== 'string' || !raw.dstName.includes('{name}')) continue
-    const dstAbs = resolve(expandHome(dst, home))
-    const srcAbs = resolve(expandHome(srcDir, home))
-    if (!existsSync(dstAbs)) continue
+    const f = matchesImportTarget(raw, { home, env: opts.env })
+    if (!f) continue
+    const dstAbs = resolve(expandHome(f.dst, home))
+    const srcAbs = resolve(expandHome(f.srcDir, home))
     const kind = raw.level === 'dir' ? 'skill' : 'rule'
 
     // 链接形态"想要名单"：这些名字由 sync 管理，不是手建的

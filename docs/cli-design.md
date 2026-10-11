@@ -140,6 +140,11 @@
 | `aas remove <名> [--editor <名>] [--purge]` | 摘运行时条目 + 销账；`--purge` 连缓存 | 会删东西：TTY 交互确认；**非 TTY 没给 `--yes` → 直接报错退出**（绝不静默删） |
 | `aas import <名>` | 把编辑器里**手建**的规则收进你自己的源仓库（链接形态接管） | 写源仓库；**只写源，不自动建链接**——装完提示跑 `aas sync`；**源里同名 → 拒绝**（提示先处理同名或换名） |
 | `aas editors` | 列出检测到的编辑器与各自目录、前置条件 | 只读 |
+| `aas config get` | 打印用户配置字段（带中文解释；交互下可直接选择修改） | 只读（交互下修改会写 `~/.aas/config.json`） |
+| `aas config set <键> [值]` | 设置用户配置：repoRoot 弹文件夹选择器、editor 弹单选列表；给值直接写 | 写 `~/.aas/config.json` |
+| `aas config init` | 初始化向导：按 repoRoot → editor 顺序设置（已设置的显示当前值问是否要改） | 写 `~/.aas/config.json` |
+
+**配置分层（2026-10-10）**：机器相关的路径不再写进 `sync.config.json`（随包骨架），改放 `~/.aas/config.json`（`repoRoot` + `editor`）。`repoRoot` 定了，链接形态的相对 `srcDir` 与技能 `localPath` 都自动推导；优先级：**环境变量 > 用户配置 > 骨架**。详见 [design.md](design.md)「配置分层」。
 
 **链接形态条目的移除**不走 `aas remove`（它只管账本）：手工删运行时链接即可（架构文档 §8.1 已有回滚说明），doctor 会如实报缺失。
 

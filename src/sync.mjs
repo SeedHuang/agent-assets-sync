@@ -2,7 +2,8 @@
 /**
  * sync.mjs —— 把源仓库里的「全局规则」和「技能」同步到编辑器的运行时目录。
  *
- * 配置驱动（见 docs/design.md）：源目录 / 目标目录 / 命名规则全写在 sync.config.json 里，
+ * 配置驱动（见 docs/design.md「配置分层」）：随包 sync.config.json 是零个人路径的骨架，
+ * 机器相关的值（repoRoot / editor）在 ~/.aas/config.json（aas config 命令管理）。
  * **换编辑器或换机器只改配置，不碰本文件**。
  *
  * 体系公理（见 retro-skills/docs/architecture.md §4）：
@@ -42,14 +43,13 @@ import { createHash } from 'node:crypto'
 import { join, resolve, dirname, relative, isAbsolute } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { normalizeConfig } from './config.mjs'
+import { expandHome, loadConfig, DEFAULT_CONFIG_PATH, requireAbsoluteSrcDir, pickEnvField } from './config.mjs'
+import { loadEffectiveConfig } from './user-config.mjs'
 import { readLedger, runtimePathsIndex, reclassifyWithLedger, defaultLedgerPath } from './ledger.mjs'
 import { detectDrift } from './update.mjs'
 import { cacheKeyForSource, reposDirFor } from './add.mjs'
 
 const HOME = homedir()
-/** 默认配置文件：本项目根下的 sync.config.json（src/ 的上一级） */
-const DEFAULT_CONFIG_PATH = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'sync.config.json')
 
 /**
  * 是否"被直接执行"（而不是被 import 进来）。
@@ -84,25 +84,8 @@ export function isDirectRun(entry, moduleUrl) {
 //            { "srcDir": "RETRO_SKILLS_RULES", "dstDir": "TRAE_RULES_DST" }
 // ─────────────────────────────────────────────────────────────
 
-/** 展开开头的 ~（兼容 ~/ 与 ~\） */
-export function expandHome(p, home = HOME) {
-  if (typeof p !== 'string') return p
-  if (p === '~') return home
-  if (p.startsWith('~/') || p.startsWith('~\\')) return join(home, p.slice(2))
-  return p
-}
-
-/** 读配置文件；顺手剥掉 BOM（PowerShell 写文件容易带，会让 JSON.parse 报错） */
-export function loadConfig(configPath) {
-  const p = resolve(configPath)
-  if (!existsSync(p)) throw new Error(`配置文件不存在：${p}`)
-  const raw = readFileSync(p, 'utf8').replace(/^\uFEFF/, '')
-  try {
-    return JSON.parse(raw)
-  } catch (e) {
-    throw new Error(`配置文件不是合法 JSON：${p}\n${e.message}`)
-  }
-}
+/** expandHome / loadConfig / DEFAULT_CONFIG_PATH 的定义已迁到 config.mjs（避免 config↔sync 循环），这里再导出保持旧 import 兼容 */
+export { expandHome, loadConfig, DEFAULT_CONFIG_PATH }
 
 /** 把配置 + 环境变量 变成脚本内部用的 TARGETS（dstName 函数 / dirLevel 布尔） */
 export function buildTargets(config, { env = {}, home = HOME } = {}) {
@@ -110,19 +93,14 @@ export function buildTargets(config, { env = {}, home = HOME } = {}) {
   if (!Array.isArray(list) || list.length === 0) {
     throw new Error('配置里没有 targets（应为非空数组）')
   }
+  // 骨架的相对 srcDir 靠 repoRoot 推导；还没配 repoRoot 且无环境变量覆盖 → 报错指路（别 resolve 到 cwd 变玄学报错）
+  requireAbsoluteSrcDir(list, { home, env })
   return list.map((raw, i) => {
     const at = `targets[${i}]`
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${at} 不是对象`)
     const label = raw.label ?? at
-    const envMap = raw.env ?? {}
-    const pick = (key) => {
-      const name = envMap[key]
-      return typeof name === 'string' && typeof env[name] === 'string' && env[name].trim() !== ''
-        ? env[name]
-        : undefined
-    }
-    const srcDir = pick('srcDir') ?? raw.srcDir
-    const dstDir = pick('dstDir') ?? raw.dstDir
+    const srcDir = pickEnvField(raw, 'srcDir', env)
+    const dstDir = pickEnvField(raw, 'dstDir', env)
     if (typeof srcDir !== 'string' || srcDir.trim() === '') throw new Error(`${at}（${label}）缺 srcDir`)
     if (typeof dstDir !== 'string' || dstDir.trim() === '') throw new Error(`${at}（${label}）缺 dstDir`)
     if (typeof raw.dstName !== 'string' || !raw.dstName.includes('{name}')) {
@@ -412,8 +390,8 @@ const USAGE = `用法（在本项目根下跑）：
   node src/sync.mjs --config <路径>    用别的配置文件（默认 本项目根的 sync.config.json）
   node --test test/sync.test.mjs       跑脚本自己的测试（临时目录里，不碰真实运行时）
 
-配置：源 / 目标 / 命名规则见 sync.config.json；其中 env 字段可把环境变量绑到路径上
-      （如 RETRO_SKILLS_RULES / RETRO_SKILLS_DIR / TRAE_RULES_DST / TRAE_SKILLS_DST），换机器时不必改配置`
+配置：机器相关的值（repoRoot / editor）放 ~/.aas/config.json（aas config 命令管理）；随包 sync.config.json
+      是零个人路径的骨架。环境变量可覆盖路径（如 RETRO_SKILLS_RULES / RETRO_SKILLS_DIR / TRAE_RULES_DST / TRAE_SKILLS_DST）`
 
 function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv)
@@ -433,7 +411,7 @@ function main(argv = process.argv.slice(2)) {
   let ledgerEntries = []
   let ledgerWarn = null
   try {
-    const cfg = normalizeConfig(loadConfig(configPath))
+    const cfg = loadEffectiveConfig(configPath, { home: HOME })
     targets = cfg.targets.length > 0 ? buildTargets({ targets: cfg.targets }, { env: process.env }) : []
   } catch (e) {
     console.error(`配置载入失败：${e.message}`)
@@ -582,7 +560,6 @@ const isMain = isDirectRun(process.argv[1], import.meta.url)
 if (isMain) process.exitCode = main() // 不用 process.exit：Windows 上立刻退出有概率丢 stdout 尾部输出
 
 export {
-  DEFAULT_CONFIG_PATH,
   linkTarget, lexists, sha256File, sha256Dir, fingerprint, removeLinkOrCopy,
   inspect, applyOne, main,
 }
