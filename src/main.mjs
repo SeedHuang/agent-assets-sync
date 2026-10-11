@@ -22,16 +22,20 @@
  *   aas remove <名>   按账本摘除运行时条目并销账
  *     --editor <名> / --purge / --yes
  *   aas import <名>   把编辑器里手建的条目收编进源仓库（接管需再跑 aas sync --replace）
+ *   aas config get    查看用户配置（~/.aas/config.json；交互下可直接选择修改）
+ *   aas config set <键> [值]   设置用户配置（repoRoot 弹目录选择器 / editor 弹单选列表）
+ *   aas config init   初始化向导：按 repoRoot → editor 顺序设置
  *   --config <路径>   用别的配置文件（默认 项目根的 sync.config.json）
  */
 import { Command } from 'commander'
-import { main, loadConfig, DEFAULT_CONFIG_PATH } from './sync.mjs'
-import { normalizeConfig } from './config.mjs'
+import { main } from './sync.mjs'
+import { loadEffectiveConfig } from './user-config.mjs'
 import { describeEditors } from './editors.mjs'
 import { runAdd } from './add.mjs'
 import { runRemove } from './remove.mjs'
 import { runUpdate } from './update.mjs'
 import { runImport } from './import.mjs'
+import { runConfigGet, runConfigSet, runConfigInit } from './config-cmd.mjs'
 import { homedir } from 'node:os'
 
 function run(argvForMain) {
@@ -46,7 +50,8 @@ function run(argvForMain) {
 const isTTY = process.stdin.isTTY === true
 
 function loadNormalized(configPath) {
-  return normalizeConfig(loadConfig(configPath ?? DEFAULT_CONFIG_PATH))
+  // loadEffectiveConfig 内部已对 null 回退 DEFAULT_CONFIG_PATH，这里不用再兜一层
+  return loadEffectiveConfig(configPath, { home: homedir() })
 }
 
 const program = new Command()
@@ -206,5 +211,47 @@ program
       process.exitCode = 2
     }
   })
+
+const cfgCmd = program
+  .command('config')
+  .description('查看 / 设置用户配置（~/.aas/config.json）')
+
+/**
+ * config 子命令的共享包装：统一「--config 兜底 + 报错打 ✗ + 退出码 2」的口径，
+ * 免得三个子命令各写一份、彼此漂移。fn 收到 { baseConfigPath, home, isTTY }。
+ *
+ * 注意：直接接 opts 对象，不从 rest args 里挖——commander 对无参数子命令传的是
+ * `(opts, command)`，最后一个参数是 Command 而非 options（实测 2026-10-10）。
+ * 无参数子命令直接 `.action(configAction(fn))`；只有需要重映射形参的（如 set 要把
+ * key/value 一起传下去）才自己包一层箭头函数。
+ */
+function configAction(fn) {
+  return async (opts = {}) => {
+    try {
+      await fn({ baseConfigPath: opts?.config ?? program.opts().config, home: homedir(), isTTY })
+    } catch (e) {
+      console.error(`✗ ${e.message}`)
+      process.exitCode = 2
+    }
+  }
+}
+
+cfgCmd
+  .command('get')
+  .description('打印当前配置字段（带中文解释；交互下可直接选择修改）')
+  .option('--config <路径>', '用别的配置文件')
+  .action(configAction((o) => runConfigGet(o)))
+
+cfgCmd
+  .command('set <键> [值]')
+  .description('设置配置字段（repoRoot 弹目录选择器 / editor 弹单选列表；给值则直接写）')
+  .option('--config <路径>', '用别的配置文件')
+  .action((key, value, opts) => configAction((o) => runConfigSet({ ...o, key, value }))(opts))
+
+cfgCmd
+  .command('init')
+  .description('初始化向导：按 repoRoot → editor 顺序逐个设置')
+  .option('--config <路径>', '用别的配置文件')
+  .action(configAction((o) => runConfigInit(o)))
 
 program.parseAsync(process.argv)
