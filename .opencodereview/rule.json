@@ -1,0 +1,9 @@
+{
+  "rules": [
+    {
+      "path": "**/*.{js,mjs,cjs,ts}",
+      "rule": "本项目是 Node CLI 项目，无 React 代码。忽略 React 类检查项（React Best Practices / Hooks / useState / useEffect / XSS / innerHTML / document.write）。",
+      "merge_system_rule": true
+    }
+  ]
+}
